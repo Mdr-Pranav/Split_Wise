@@ -33,3 +33,43 @@ export const iosAppLinks = (payment) => {
     { app: 'Paytm', href: `paytmmp://pay?${q}` },
   ];
 };
+
+// Launch a UPI app's home screen (not a payment link, so no risk check).
+// Android: Chrome's intent: URL by package name, which opens the Play Store
+// if the app isn't installed. iOS: each app's own URL scheme.
+export const UPI_APPS = [
+  { id: 'gpay', name: 'GPay', android: 'com.google.android.apps.nbu.paisa.user', ios: 'gpay://' },
+  { id: 'phonepe', name: 'PhonePe', android: 'com.phonepe.app', ios: 'phonepe://' },
+  { id: 'paytm', name: 'Paytm', android: 'net.one97.paytm', ios: 'paytmmp://' },
+  { id: 'bhim', name: 'BHIM', android: 'in.org.npci.upiapp', ios: null },
+];
+
+export function appLaunchUrl(app) {
+  if (isIOS()) return app.ios;
+  return `intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=${app.android};end`;
+}
+
+// Apps that can be launched on this device
+export const launchableApps = () => UPI_APPS.filter((a) => (isIOS() ? a.ios : true));
+
+// Synchronous copy so it lands inside the tap, before the app opens
+export function copyNow(text) {
+  try {
+    navigator.clipboard?.writeText(text).catch(() => {});
+  } catch {
+    // fall through to the textarea trick
+  }
+  try {
+    const el = document.createElement('textarea');
+    el.value = text;
+    el.setAttribute('readonly', '');
+    el.style.position = 'fixed';
+    el.style.opacity = '0';
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    el.remove();
+  } catch {
+    // clipboard API above usually covers it
+  }
+}

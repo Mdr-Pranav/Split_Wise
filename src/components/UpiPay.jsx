@@ -1,180 +1,148 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Icon from './Icon';
-import { iosAppLinks, isIOS, isPhone, upiLink } from '../lib/upi';
-import { formatMoney } from '../lib/money';
+import { appLaunchUrl, copyNow, isPhone, launchableApps, upiLink } from '../lib/upi';
 import { useToast } from '../context/ToastContext';
 
-// Pay the receiver from the user's UPI app, then come back and confirm.
-// Phones open the app directly (iOS picks an app by name); laptops get a QR
-// code to scan. Some apps (often Google Pay) refuse payments started from a
-// link to a personal UPI ID and show a misleading "bank limit" error, so a
-// manual route (copy ID + amount, QR from gallery, link without amount) is
-// always one tap away. Nothing is recorded until the user taps "I've paid".
-export default function UpiPay({ payee, vpa, amount, note, busy, onPaid }) {
-  const toast = useToast();
-  const [stage, setStage] = useState('pay'); // pay | qr | back | manual
-  const [qr, setQr] = useState('');
-  const boxRef = useRef(null);
-  const payment = { vpa, name: payee, amount, note };
-  const link = upiLink(payment);
-  const phone = isPhone();
-  const ios = isIOS();
-  const plainAmount = Number(amount).toFixed(2).replace(/\.00$/, '');
+const LAST_APP_KEY = 'splitzy-upi-app';
 
-  // Amount or bucket changed: start over
+// Payment helper inside Settle up: the receiver's UPI ID and the amount to
+// copy, then two ways to pay. "Show QR" works on laptops (scan it with your
+// phone); "Open app" works on phones (copies the UPI ID and launches the
+// app's home screen). The one that doesn't fit the device stays visible but
+// disabled. UPI apps flag pre-filled links to personal UPI IDs, so the
+// payment itself happens by hand in the UPI app; nothing is recorded until
+// the user taps "I've paid".
+export default function UpiPay({ payee, vpa, amount, note }) {
+  const toast = useToast();
+  const phone = isPhone();
+  const [open, setOpen] = useState(''); // '' | qr | apps
+  const [qr, setQr] = useState('');
+  const [lastApp, setLastApp] = useState(() => {
+    try {
+      return localStorage.getItem(LAST_APP_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const apps = launchableApps().sort((a, b) => (b.id === lastApp) - (a.id === lastApp));
+  const plainAmount = Number(amount).toFixed(2).replace(/\.00$/, '');
+  const link = vpa ? upiLink({ vpa, name: payee, amount, note }) : '';
+
+  // A new amount or person invalidates the QR
   useEffect(() => {
-    setStage('pay');
     setQr('');
+    setOpen((o) => (o === 'qr' ? '' : o));
   }, [link]);
 
-  const makeQr = async () => {
-    if (qr) return qr;
-    const { toDataURL } = await import('qrcode');
-    const url = await toDataURL(link, { margin: 2, width: 440, color: { dark: '#000000', light: '#ffffff' } });
-    setQr(url);
-    return url;
+  const copy = (text, what) => {
+    copyNow(text);
+    toast.success(`${what} copied`);
   };
 
   const showQr = async () => {
-    await makeQr();
-    setStage('qr');
-  };
-
-  const copy = async (text, what) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success(`${what} copied`);
-    } catch {
-      toast.error('Couldn’t copy. Long-press to copy it instead.');
+    if (open === 'qr') return setOpen('');
+    if (!qr) {
+      const { toDataURL } = await import('qrcode');
+      setQr(await toDataURL(link, { margin: 1, width: 360, color: { dark: '#000000', light: '#ffffff' } }));
     }
+    setOpen('qr');
   };
 
-  // The extra steps can sit below the fold of a tall dialog
-  useEffect(() => {
-    if (stage !== 'pay') boxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }, [stage]);
+  const launch = (app) => {
+    copyNow(vpa);
+    try {
+      localStorage.setItem(LAST_APP_KEY, app.id);
+    } catch {
+      // only affects ordering
+    }
+    setLastApp(app.id);
+    toast.success(`UPI ID copied · opening ${app.name}`);
+  };
 
-  const money = formatMoney(amount, 'INR');
-  const paidButton = (
-    <button type="button" onClick={onPaid} disabled={busy} className="btn-primary w-full">
-      <Icon name="check" className="h-4 w-4" strokeWidth={2.4} /> {busy ? 'Sending…' : 'I’ve paid'}
-    </button>
-  );
-
-  if (stage === 'manual') {
-    return (
-      <div ref={boxRef} className="space-y-3 rounded-2xl bg-[rgb(var(--line)/0.06)] p-4">
-        <div>
-          <p className="text-[15px] font-semibold text-ink">Pay {payee} by hand</p>
-          <p className="mt-0.5 text-[13px] leading-snug text-slate-500">
-            Some apps, often Google Pay, block payments started from a link and wrongly say you hit a bank limit. Paying by hand
-            works: open any UPI app, choose “Pay to UPI ID”, and paste these.
-          </p>
-        </div>
-        <div className="divide-y divide-[rgb(var(--line)/0.1)] overflow-hidden rounded-xl bg-surface-card ring-1 ring-[rgb(var(--line)/0.08)]">
-          {[
-            ['UPI ID', vpa, 'UPI ID'],
-            ['Amount', `₹${plainAmount}`, 'Amount', plainAmount],
-          ].map(([label, shown, what, raw]) => (
-            <div key={label} className="flex items-center gap-3 px-3 py-2">
-              <span className="w-16 flex-shrink-0 text-[12px] text-slate-500">{label}</span>
-              <span className="min-w-0 flex-1 truncate font-mono text-[14px] font-medium text-ink">{shown}</span>
-              <button type="button" onClick={() => copy(raw ?? shown, what)} className="btn-secondary h-8 !px-3 !text-[12px]">
-                <Icon name="copy" className="h-3.5 w-3.5" /> Copy
-              </button>
-            </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {phone && !ios && (
-            <a href={upiLink({ ...payment, withAmount: false })} className="btn-secondary !px-2 !text-[13px]">
-              Open UPI app, type amount
-            </a>
-          )}
-          <button
-            type="button"
-            onClick={async () => {
-              const url = await makeQr();
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `pay-${payee.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-upi.png`;
-              a.click();
-              toast.success('QR saved. Scan it from your gallery in any UPI app.');
-            }}
-            className={`btn-secondary !px-2 !text-[13px] ${phone && !ios ? '' : 'col-span-2'}`}
-          >
-            <Icon name="download" className="h-4 w-4" /> Save QR to scan
-          </button>
-        </div>
-        <p className="text-[12px] text-slate-500">PhonePe, Paytm and BHIM usually accept the normal button too.</p>
-        {paidButton}
-      </div>
-    );
-  }
-
-  if (stage === 'back') {
-    return (
-      <div ref={boxRef} className="space-y-3 rounded-2xl bg-brand-500/[0.07] p-4 text-center ring-1 ring-brand-500/20">
-        <p className="text-[15px] font-medium text-ink">Did the {money} payment to {payee} go through?</p>
-        <p className="text-[13px] text-slate-500">{payee} still confirms it before anything is cleared.</p>
-        <div className="flex gap-2">
-          <button type="button" onClick={() => setStage('manual')} className="btn-secondary flex-1">It didn’t work</button>
-          <button type="button" onClick={onPaid} disabled={busy} className="btn-primary flex-1">
-            <Icon name="check" className="h-4 w-4" strokeWidth={2.4} /> {busy ? 'Sending…' : 'Yes, I’ve paid'}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (stage === 'qr') {
-    return (
-      <div ref={boxRef} className="space-y-3 rounded-2xl bg-[rgb(var(--line)/0.06)] p-4 text-center">
-        <img src={qr} alt={`UPI QR code to pay ${payee} ${money}`} className="mx-auto h-[200px] w-[200px] rounded-xl bg-white p-2" />
-        <p className="text-[13px] text-slate-600">
-          Scan with any UPI app to pay <span className="font-medium text-ink">{payee}</span> {money}
-          <span className="block font-mono text-[12px] text-slate-500">{vpa}</span>
-        </p>
-        <button type="button" onClick={() => setStage('back')} className="btn-primary w-full">I’ve scanned and paid</button>
-      </div>
-    );
-  }
+  const tile = (active) =>
+    `flex h-11 items-center justify-center gap-2 rounded-xl text-[14px] font-semibold transition-[transform,background-color,opacity] duration-300 ease-ios active:scale-[0.97] ${
+      active ? 'bg-brand-500 text-white' : 'bg-[rgb(var(--line)/0.08)] text-ink hover:bg-[rgb(var(--line)/0.13)]'
+    } disabled:pointer-events-none disabled:opacity-35`;
 
   return (
-    <div className="space-y-2">
-      {phone && !ios && (
-        <a href={link} onClick={() => setTimeout(() => setStage('back'), 600)} className="btn-primary h-12 w-full">
-          <Icon name="bolt" className="h-4 w-4" /> Pay {money} via UPI
-        </a>
-      )}
-      {ios && (
-        <>
-          <p className="text-center text-[13px] text-slate-500">Pay {money} with</p>
-          <div className="grid grid-cols-3 gap-2">
-            {iosAppLinks(payment).map((a) => (
-              <a key={a.app} href={a.href} onClick={() => setTimeout(() => setStage('back'), 600)} className="btn-primary !px-2">
-                {a.app}
-              </a>
-            ))}
-          </div>
-          <a href={link} onClick={() => setTimeout(() => setStage('back'), 600)} className="block text-center text-[13px] font-medium text-brand-600">
-            Another UPI app
-          </a>
-        </>
-      )}
-      {!phone && (
-        <button type="button" onClick={showQr} className="btn-primary h-12 w-full">
-          <Icon name="bolt" className="h-4 w-4" /> Pay {money} via UPI · show QR
+    <div className="space-y-2.5 rounded-2xl bg-[rgb(var(--line)/0.05)] p-3 ring-1 ring-[rgb(var(--line)/0.06)]">
+      {/* What to pay, copyable */}
+      <div className="grid grid-cols-[1fr_auto] gap-2">
+        <CopyField label="UPI ID" value={vpa || 'Not added yet'} mono disabled={!vpa} onCopy={() => copy(vpa, 'UPI ID')} />
+        <CopyField label="Amount" value={`₹${plainAmount}`} onCopy={() => copy(plainAmount, 'Amount')} />
+      </div>
+
+      {/* Ways to pay; the one that doesn't suit this device is disabled */}
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={showQr} disabled={phone || !vpa} title={phone ? 'On a phone, use Open app' : undefined} className={tile(open === 'qr')}>
+          <Icon name="qr" className="h-4 w-4" /> Show QR
         </button>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => (o === 'apps' ? '' : 'apps'))}
+          disabled={!phone || !vpa}
+          title={!phone ? 'Opening a UPI app works on a phone' : undefined}
+          className={tile(open === 'apps')}
+        >
+          <Icon name="phone" className="h-4 w-4" /> Open app
+        </button>
+      </div>
+
+      <div className={`grid transition-[grid-template-rows,opacity] duration-500 ease-ios ${open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+        <div className="overflow-hidden">
+          {open === 'qr' && qr && (
+            <div className="flex items-center gap-3 pt-0.5">
+              <img src={qr} alt={`UPI QR to pay ${payee} ₹${plainAmount}`} className="h-[132px] w-[132px] flex-shrink-0 rounded-xl bg-white p-1.5" />
+              <p className="text-[13px] leading-snug text-slate-500">
+                Scan with any UPI app on your phone to pay <span className="font-medium text-ink">{payee}</span>{' '}
+                <span className="font-semibold tabular-nums text-ink">₹{plainAmount}</span>, then tap <b className="text-ink">I’ve paid</b> below.
+              </p>
+            </div>
+          )}
+          {open === 'apps' && (
+            <div className="space-y-1.5 pt-0.5">
+              <div className={`grid gap-1.5 ${apps.length > 3 ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                {apps.map((app, i) => (
+                  <a key={app.id} href={appLaunchUrl(app)} onClick={() => launch(app)} className={`${i === 0 ? 'btn-primary' : 'btn-secondary'} h-9 !px-1 !text-[13px]`}>
+                    {app.name}
+                  </a>
+                ))}
+              </div>
+              <p className="text-[12px] text-slate-500">
+                Copies the UPI ID and opens the app. There: <b className="text-ink">Pay → UPI ID</b> → paste → enter{' '}
+                <b className="tabular-nums text-ink">₹{plainAmount}</b>.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {phone && (
+        <p className="flex items-start gap-1.5 text-[11px] leading-snug text-slate-500">
+          <Icon name="bell" className="mt-px h-3 w-3 flex-shrink-0" />
+          UPI rules don’t let apps start payments between friends automatically, so pay in your UPI app, then come back and tap I’ve paid.
+        </p>
       )}
-      {/* Exactly what the UPI app will receive, so there's no doubt about the amount */}
-      <p className="text-center text-[12px] text-slate-500">
-        Opens with <span className="font-semibold tabular-nums text-ink">₹{Number(amount).toFixed(2)}</span> to{' '}
-        <span className="font-mono text-ink">{vpa}</span>
-      </p>
-      <button type="button" onClick={() => setStage('manual')} className="block w-full text-center text-[13px] font-medium text-slate-500 hover:text-ink">
-        {phone ? 'App says “bank limit”? Pay by hand' : 'Pay by hand instead'}
-      </button>
     </div>
+  );
+}
+
+function CopyField({ label, value, mono, disabled, onCopy }) {
+  return (
+    <button
+      type="button"
+      onClick={onCopy}
+      disabled={disabled}
+      title={disabled ? undefined : `Copy ${label}`}
+      className="group flex min-w-0 items-center gap-2 rounded-xl bg-surface-card px-3 py-1.5 text-left ring-1 ring-[rgb(var(--line)/0.08)] transition-transform duration-200 active:scale-[0.98] disabled:active:scale-100"
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">{label}</span>
+        <span className={`block truncate text-[14px] font-semibold tabular-nums ${disabled ? '!font-normal text-slate-400' : 'text-ink'} ${mono ? 'font-mono text-[13px]' : ''}`}>
+          {value}
+        </span>
+      </span>
+      {!disabled && <Icon name="copy" className="h-4 w-4 flex-shrink-0 text-slate-400 transition-colors group-hover:text-brand-500" />}
+    </button>
   );
 }

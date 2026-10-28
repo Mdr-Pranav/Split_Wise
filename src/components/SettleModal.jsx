@@ -5,6 +5,7 @@ import Icon from './Icon';
 import BucketIcon from './BucketIcon';
 import { ErrorNote } from './AuthShell';
 import UpiPay from './UpiPay';
+import { PillSelect } from './Field';
 import { APP_NAME } from '../lib/brand';
 import { api } from '../lib/api';
 import { currencySymbol, formatMoney, fromCents, pendingKey, toCents } from '../lib/money';
@@ -48,9 +49,6 @@ export default function SettleModal({ open, onClose, group, people, me, isOwner,
   const reverseOwed = debts.some((d) => d.debtor === to && d.creditor === from);
   const totalCents = owed.reduce((a, d) => a + d.cents, 0);
   const receiver = to === me;
-  // Paying someone with a UPI ID: offer to open the UPI app first
-  const payeeUpi = from === me && group.currency === 'INR' ? people.find((p) => p.user_id === to)?.upi_id : null;
-  const payCents = bucket === ALL ? totalCents : toCents(amount);
   const selected = owed.find((d) => d.bucket === bucket);
 
   // Whenever the pair changes, start from "everything" (or the only bucket)
@@ -110,54 +108,37 @@ export default function SettleModal({ open, onClose, group, people, me, isOwner,
     }
   };
 
+  const paying = from === me && !receiver && cur === 'INR';
+  const amountCents = bucket === ALL ? totalCents : toCents(amount);
+  const options = [
+    ...(owed.length > 1 ? [{ value: ALL, label: 'All buckets', cents: totalCents }] : []),
+    ...owed.map((d) => ({ value: d.bucket, label: d.bucket, cents: d.cents })),
+  ];
+
   return (
     <Modal open={open} onClose={onClose} labelledBy="settle-title">
-      <form onSubmit={save} className="space-y-5">
-        <h2 id="settle-title" className="pr-10 text-[22px] font-semibold text-ink">Settle up</h2>
+      <form onSubmit={save} className="space-y-3.5">
+        <h2 id="settle-title" className="pr-10 text-[20px] font-semibold text-ink">Settle up</h2>
 
-        <div className="flex items-center justify-center gap-4 py-1">
-          <div className="flex w-24 flex-col items-center gap-1.5 text-center">
-            <Avatar id={from} name={nameOf(from)} size="lg" />
-            <span className="w-full truncate text-[13px] font-medium text-ink">{nameOf(from)}</span>
-          </div>
+        {/* Who paid ⇄ who got paid: avatar and name together */}
+        <div className="flex items-center gap-1.5">
+          <PersonPicker label="Paid by" id="settle-from" value={from} members={members} me={me} nameOf={nameOf} onChange={(v) => changePair(v, to)} />
           <button
             type="button"
             onClick={() => changePair(to, from)}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-brand-500 transition-colors hover:bg-surface-elevated"
+            className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-brand-500 transition-[transform,background-color] duration-300 hover:bg-[rgb(var(--line)/0.08)] active:rotate-180"
             aria-label="Swap who paid"
             title="Swap"
           >
-            <Icon name="swap" className="h-5 w-5" strokeWidth={2} />
+            <Icon name="swap" className="h-[18px] w-[18px]" strokeWidth={2} />
           </button>
-          <div className="flex w-24 flex-col items-center gap-1.5 text-center">
-            <Avatar id={to} name={nameOf(to)} size="lg" />
-            <span className="w-full truncate text-[13px] font-medium text-ink">{nameOf(to)}</span>
-          </div>
+          <PersonPicker label="Paid to" id="settle-to" value={to} members={members} me={me} nameOf={nameOf} onChange={(v) => changePair(from, v)} />
         </div>
 
         <ErrorNote>{error}</ErrorNote>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="settle-from" className="label">Who paid</label>
-            <select id="settle-from" className="input-field" value={from} onChange={(e) => changePair(e.target.value, to)}>
-              {members.map((m) => (
-                <option key={m.user_id} value={m.user_id}>{m.user_id === me ? 'You' : m.display_name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="settle-to" className="label">Paid to</label>
-            <select id="settle-to" className="input-field" value={to} onChange={(e) => changePair(from, e.target.value)}>
-              {members.map((m) => (
-                <option key={m.user_id} value={m.user_id}>{m.user_id === me ? 'You' : m.display_name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
         {owed.length === 0 ? (
-          <div className="rounded-2xl bg-surface-elevated/60 px-4 py-4 text-center text-[14px] text-slate-600">
+          <div className="rounded-2xl bg-[rgb(var(--line)/0.05)] px-4 py-4 text-center text-[14px] text-slate-600">
             {from === to
               ? 'Pick two different people.'
               : waitingOnly.length
@@ -171,96 +152,102 @@ export default function SettleModal({ open, onClose, group, people, me, isOwner,
           </div>
         ) : (
           <>
+            {/* What to clear + how much, in one row */}
             <div>
-              <span className="label">What to clear</span>
-              <div role="radiogroup" aria-label="Bucket to clear" className="space-y-1.5">
-                {owed.length > 1 && (
-                  <BucketOption active={bucket === ALL} onClick={() => pickBucket(owed, ALL)} label="All buckets" amount={formatMoney(fromCents(totalCents), cur)}>
+              <div className="flex items-stretch gap-2">
+                <label className="relative flex min-w-0 flex-1 items-center gap-2 rounded-2xl bg-surface-card py-1.5 pl-2 pr-8 ring-1 ring-[rgb(var(--line)/0.1)] focus-within:ring-2 focus-within:ring-brand-500/60">
+                  {bucket === ALL ? (
                     <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-brand-500/10 text-brand-600">
                       <Icon name="check" className="h-4 w-4" strokeWidth={2.4} />
                     </span>
-                  </BucketOption>
-                )}
-                {owed.map((d) => (
-                  <BucketOption key={d.bucket} active={bucket === d.bucket} onClick={() => pickBucket(owed, d.bucket)} label={d.bucket} amount={formatMoney(fromCents(d.cents), cur)}>
-                    <BucketIcon name={d.bucket} size="sm" />
-                  </BucketOption>
-                ))}
-                {waitingOnly.map((d) => (
-                  <div key={d.bucket} className="flex items-center gap-3 rounded-2xl px-3 py-2 opacity-60">
-                    <BucketIcon name={d.bucket} size="sm" />
-                    <span className="flex-1 text-[14px] text-ink">{d.bucket}</span>
-                    <span className="text-[12px] font-medium text-amber-600">Waiting to confirm</span>
-                  </div>
-                ))}
-              </div>
-              {!receiver && (
-                <p className="mt-2 flex items-center gap-1.5 text-[12px] text-slate-500">
-                  <Icon name="bell" className="h-3.5 w-3.5" /> {nameOf(to)} confirms it before anything is cleared.
-                </p>
-              )}
-            </div>
-
-            {bucket !== ALL && selected && (
-              <div>
-                <label htmlFor="settle-amount" className="label">
-                  Amount <span className="font-normal text-slate-400">(less than {formatMoney(fromCents(selected.cents), cur)} is a part payment)</span>
+                  ) : (
+                    <BucketIcon name={bucket} size="sm" />
+                  )}
+                  <span className="min-w-0">
+                    <span className="block text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Clearing</span>
+                    <select
+                      aria-label="Bucket to clear"
+                      value={bucket}
+                      onChange={(e) => pickBucket(owed, e.target.value)}
+                      className="absolute inset-0 w-full cursor-pointer appearance-none opacity-0"
+                    >
+                      {options.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label} · {formatMoney(fromCents(o.cents), cur)}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="block truncate text-[15px] font-semibold text-ink">
+                      {bucket === ALL ? 'All buckets' : bucket}
+                      <span className="font-normal text-slate-500"> · {formatMoney(fromCents(bucket === ALL ? totalCents : selected?.cents || 0), cur)}</span>
+                    </span>
+                  </span>
+                  {options.length > 1 && (
+                    <Icon name="chevron" className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 rotate-90 text-slate-400" />
+                  )}
                 </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">{currencySymbol(cur)}</span>
-                  <input
-                    id="settle-amount"
-                    type="number"
-                    inputMode="decimal"
-                    min="0.01"
-                    step="0.01"
-                    max={fromCents(selected.cents)}
-                    className="input-field no-spin pl-9 text-[18px] font-semibold"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    required
-                  />
-                </div>
+                <label className="relative flex w-[34%] flex-shrink-0 flex-col justify-center rounded-2xl bg-surface-card px-3 py-1.5 ring-1 ring-[rgb(var(--line)/0.1)] focus-within:ring-2 focus-within:ring-brand-500/60">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">Amount</span>
+                  <span className="flex items-center gap-0.5">
+                    <span className="text-[15px] text-slate-500">{currencySymbol(cur)}</span>
+                    <input
+                      id="settle-amount"
+                      type="number"
+                      inputMode="decimal"
+                      min="0.01"
+                      step="0.01"
+                      max={selected ? fromCents(selected.cents) : undefined}
+                      readOnly={bucket === ALL}
+                      className="no-spin w-full min-w-0 bg-transparent text-[16px] font-semibold tabular-nums text-ink outline-none read-only:text-slate-500"
+                      value={bucket === ALL ? fromCents(totalCents) : amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      required
+                    />
+                  </span>
+                </label>
               </div>
-            )}
-
-            <div>
-              <label htmlFor="settle-note" className="label">Note <span className="font-normal text-slate-400">(optional)</span></label>
-              <input id="settle-note" className="input-field" value={note} onChange={(e) => setNote(e.target.value)} maxLength={120} placeholder="UPI, cash…" />
+              <p className="mt-1.5 px-1 text-[11px] leading-snug text-slate-500">
+                {bucket === ALL ? 'Clears every bucket at once.' : 'Less than the full amount is a part payment.'}
+                {!receiver && ` ${nameOf(to)} confirms before anything clears.`}
+                {waitingOnly.length > 0 && ` ${waitingOnly.map((d) => d.bucket).join(', ')} already waiting to confirm.`}
+              </p>
             </div>
 
-            {payeeUpi && payCents > 0 && (!selected || payCents <= selected.cents || bucket === ALL) ? (
-              <>
-                <UpiPay
-                  payee={nameOf(to)}
-                  vpa={payeeUpi}
-                  amount={fromCents(payCents)}
-                  note={`${APP_NAME} · ${group.name} · ${bucket === ALL ? owed.map((d) => d.bucket).join(', ') : bucket}`}
-                  busy={busy}
-                  onPaid={() => save()}
-                />
-                <button type="submit" disabled={busy} className="block w-full text-center text-[13px] font-medium text-slate-500 hover:text-ink">
-                  Paid another way (cash, bank)? Just send it to confirm
-                </button>
-              </>
-            ) : (
+            {paying && amountCents > 0 && (
+              <UpiPay
+                payee={nameOf(to)}
+                vpa={people.find((p) => p.user_id === to)?.upi_id || ''}
+                amount={fromCents(amountCents)}
+                note={`${APP_NAME} · ${group.name} · ${bucket === ALL ? owed.map((d) => d.bucket).join(', ') : bucket}`}
+              />
+            )}
+
+            <div className="flex gap-2">
+              <input
+                aria-label="Note"
+                className="input-field !py-2.5 text-[14px]"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                maxLength={120}
+                placeholder="Note (optional): UPI, cash…"
+              />
+            </div>
+
             <button type="submit" disabled={busy} className="btn-primary h-12 w-full">
-              {busy
-                ? 'Saving…'
-                : !receiver
-                  ? `Send to ${nameOf(to)} to confirm`
-                  : bucket === ALL
-                    ? `Clear all · ${formatMoney(fromCents(totalCents), cur)}`
-                    : toCents(amount) === selected?.cents
-                      ? `Clear ${bucket}`
-                      : 'Record part payment'}
+              {busy ? (
+                'Saving…'
+              ) : !receiver ? (
+                <>
+                  <Icon name="check" className="h-4 w-4" strokeWidth={2.4} /> {from === me ? `I’ve paid · send to ${nameOf(to)}` : `Send to ${nameOf(to)} to confirm`}
+                </>
+              ) : bucket === ALL ? (
+                `Clear all · ${formatMoney(fromCents(totalCents), cur)}`
+              ) : toCents(amount) === selected?.cents ? (
+                `Clear ${bucket}`
+              ) : (
+                'Record part payment'
+              )}
             </button>
-            )}
-            {from === me && !payeeUpi && group.currency === 'INR' && (
-              <p className="text-center text-[12px] text-slate-500">
-                {nameOf(to)} hasn’t added a UPI ID yet, so pay them any way you like and record it here.
-              </p>
-            )}
           </>
         )}
       </form>
@@ -268,20 +255,17 @@ export default function SettleModal({ open, onClose, group, people, me, isOwner,
   );
 }
 
-function BucketOption({ active, onClick, label, amount, children }) {
+// Avatar + name in one pill
+function PersonPicker({ label, id, value, members, me, nameOf, onChange }) {
   return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={active}
-      onClick={onClick}
-      className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-all duration-150 ${
-        active ? 'bg-brand-500/10 ring-2 ring-brand-500' : 'ring-1 ring-line/[0.08] hover:bg-surface-elevated'
-      }`}
-    >
-      {children}
-      <span className="flex-1 text-[15px] font-medium text-ink">{label}</span>
-      <span className="text-[15px] font-semibold tabular-nums text-ink">{amount}</span>
-    </button>
+    <PillSelect
+      label={label}
+      id={id}
+      value={value}
+      onChange={onChange}
+      className="flex-1"
+      leading={<Avatar id={value} name={nameOf(value)} size="md" className="!ring-0" />}
+      options={members.map((m) => ({ value: m.user_id, label: m.user_id === me ? 'You' : m.display_name }))}
+    />
   );
 }
