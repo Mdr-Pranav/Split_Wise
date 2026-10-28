@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { auth } from '../lib/auth';
+import { rememberLooks } from '../lib/avatars';
 
 const AuthContext = createContext(null);
 
@@ -29,7 +30,9 @@ export function AuthProvider({ children }) {
   const userId = session?.user?.id;
 
   const refreshProfile = useCallback(async () => {
-    setProfile(userId ? await auth.profile(userId) : null);
+    const p = userId ? await auth.profile(userId) : null;
+    if (p) rememberLooks([[p.id, p.avatar_emoji, p.avatar_color]]);
+    setProfile(p);
   }, [userId]);
 
   useEffect(() => {

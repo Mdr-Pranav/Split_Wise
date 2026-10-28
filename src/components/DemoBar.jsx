@@ -49,7 +49,7 @@ export default function DemoBar() {
                   u.id === user?.id ? 'bg-brand-500/10 ring-1 ring-brand-500/30' : ''
                 }`}
               >
-                <Avatar id={u.id} name={u.display_name} />
+                <Avatar id={u.id} name={u.display_name} emoji={u.avatar_emoji} color={u.avatar_color} />
                 <span className="min-w-0 flex-1">
                   <span className="block text-[15px] font-medium text-ink">{u.display_name}</span>
                   <span className="block truncate text-[13px] text-slate-500">{u.email}</span>

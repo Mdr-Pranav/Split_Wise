@@ -17,6 +17,8 @@ async function query(builder) {
 const supabaseApi = {
   myGroups: () => rpc('my_groups'),
   createGroup: (name, currency) => rpc('create_group', { p_name: name, p_currency: currency }),
+  setGroupAvatar: (groupId, { emoji, color }) =>
+    rpc('set_group_avatar', { p_group_id: groupId, p_emoji: emoji || '', p_color: color || '' }),
   renameGroup: (groupId, name) => rpc('rename_group', { p_group_id: groupId, p_name: name }),
   deleteGroup: (groupId) => rpc('delete_group', { p_group_id: groupId }),
   transferOwnership: (groupId, userId) => rpc('transfer_ownership', { p_group_id: groupId, p_new_owner: userId }),
@@ -107,7 +109,7 @@ const supabaseApi = {
     query(
       supabase
         .from('join_requests')
-        .select('id, created_at, user_id, group_id, groups(name, owner_id), profiles(display_name, email)')
+        .select('id, created_at, user_id, group_id, groups(name, owner_id), profiles(display_name, email, avatar_emoji, avatar_color)')
         .eq('status', 'pending')
         .order('created_at', { ascending: true })
     ),
@@ -117,6 +119,9 @@ const supabaseApi = {
   updateDisplayName: (userId, name) =>
     query(supabase.from('profiles').update({ display_name: name.trim() }).eq('id', userId)),
   // Empty string clears it
+  // Profile picture: emoji and/or background colour ('' clears either)
+  updateAvatar: (userId, { emoji, color }) =>
+    query(supabase.from('profiles').update({ avatar_emoji: emoji || null, avatar_color: color || null }).eq('id', userId)),
   updateUpi: (userId, upi) => query(supabase.from('profiles').update({ upi_id: upi.trim() || null }).eq('id', userId)),
 };
 

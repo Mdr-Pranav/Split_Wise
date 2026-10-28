@@ -11,6 +11,7 @@ import Icon from '../components/Icon';
 import Avatar from '../components/Avatar';
 import Segmented from '../components/Segmented';
 import { IosSteps } from '../components/InstallApp';
+import AvatarPicker from '../components/AvatarPicker';
 
 // iOS Settings building blocks: a captioned group of rows on glass
 function Group({ title, footer, children, className = '' }) {
@@ -32,15 +33,14 @@ const TILE = {
 };
 
 // One row: coloured icon tile, label, and whatever sits on the right.
-// Rows after the first get a hairline that starts after the icon, like iOS.
+// Every row but the first gets a hairline that starts after the icon, like iOS.
 function Row({ icon, tile = 'blue', label, children, onClick, sub }) {
   const Tag = onClick ? 'button' : 'div';
   return (
     <Tag
       type={onClick ? 'button' : undefined}
       onClick={onClick}
-      data-row
-      className={`relative flex min-h-[48px] w-full items-center gap-3 px-4 py-2 text-left [&+[data-row]]:before:absolute [&+[data-row]]:before:left-[58px] [&+[data-row]]:before:right-0 [&+[data-row]]:before:top-0 [&+[data-row]]:before:h-px [&+[data-row]]:before:bg-[rgb(var(--line)/0.12)] ${
+      className={`relative flex min-h-[48px] w-full items-center gap-3 px-4 py-2 text-left [&:not(:first-child)]:before:absolute [&:not(:first-child)]:before:left-[58px] [&:not(:first-child)]:before:right-0 [&:not(:first-child)]:before:top-0 [&:not(:first-child)]:before:h-px [&:not(:first-child)]:before:bg-[rgb(var(--line)/0.12)] ${
         onClick ? 'transition-colors duration-200 active:bg-[rgb(var(--line)/0.08)]' : ''
       }`}
     >
@@ -96,7 +96,7 @@ export default function Settings() {
   const { installed, canPrompt, iosSteps, install } = useInstall();
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  const [open, setOpen] = useState(''); // expanded row: password | install
+  const [open, setOpen] = useState(''); // expanded row: emoji | password | install
 
   const upiBad = (v) => v.trim() !== '' && !isValidUpi(v);
   const toggle = (row) => setOpen((o) => (o === row ? '' : row));
@@ -109,6 +109,16 @@ export default function Settings() {
       toast.success('Name updated');
     } catch (err) {
       toast.error(err.message);
+    }
+  };
+
+  const saveAvatar = async (look) => {
+    try {
+      await api.updateAvatar(user.id, look);
+      await refreshProfile();
+      toast.success('Profile picture updated');
+    } catch {
+      toast.error('Couldn’t save that. Pick a single emoji.');
     }
   };
 
@@ -149,7 +159,14 @@ export default function Settings() {
           </div>
         </div>
 
-        <Group title="Profile" footer="Your UPI ID lets friends pay you in one tap. Only people in your groups can see it.">
+        <Group title="Profile" footer="Your picture and UPI ID are seen by people in your groups.">
+          <Row icon="sparkle" tile="orange" label="Profile picture" onClick={() => toggle('emoji')}>
+            <Avatar id={user.id} name={name} size="sm" />
+            <Icon name="chevron" className={`h-4 w-4 text-slate-400 transition-transform duration-300 ease-ios ${open === 'emoji' ? 'rotate-90' : ''}`} />
+          </Row>
+          <Reveal open={open === 'emoji'}>
+            <AvatarPicker id={user.id} name={name} emoji={profile?.avatar_emoji || ''} color={profile?.avatar_color || ''} onSave={saveAvatar} />
+          </Reveal>
           <Row icon="users" tile="blue" label="Name">
             <InlineField label="Name" value={name} onSave={saveName} maxLength={60} />
           </Row>

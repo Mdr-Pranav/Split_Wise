@@ -19,6 +19,11 @@ create table public.profiles (
   email text not null,
   -- e.g. name@okhdfcbank; lets group-mates pay them straight from the app
   upi_id text check (upi_id ~ '^[A-Za-z0-9._-]{2,64}@[A-Za-z][A-Za-z0-9.-]{1,63}$'),
+  -- Shown instead of the initial on their avatar; one emoji (ZWJ sequences
+  -- such as 👨‍👩‍👧 run to several code points, hence 16), never plain text
+  avatar_emoji text check (char_length(avatar_emoji) between 1 and 16 and avatar_emoji !~ '[A-Za-z0-9<>&"]'),
+  -- Background of their avatar, as #rrggbb
+  avatar_color text check (avatar_color ~ '^#[0-9a-fA-F]{6}$'),
   created_at timestamptz not null default now()
 );
 
@@ -29,6 +34,9 @@ create table public.groups (
   currency text not null default 'INR' check (currency ~ '^[A-Z]{3}$'),
   -- How old a debt must be before the person owed can send a nudge
   nudge_after_days int not null default 3 check (nudge_after_days between 0 and 60),
+  -- Group picture, same rules as a profile's
+  avatar_emoji text check (char_length(avatar_emoji) between 1 and 16 and avatar_emoji !~ '[A-Za-z0-9<>&"]'),
+  avatar_color text check (avatar_color ~ '^#[0-9a-fA-F]{6}$'),
   created_at timestamptz not null default now()
 );
 
@@ -244,7 +252,7 @@ create policy "see own nudges" on public.nudges
 grant usage on schema public to anon, authenticated;
 revoke all on all tables in schema public from anon, authenticated;
 grant select on all tables in schema public to authenticated;
-grant update (display_name, upi_id) on public.profiles to authenticated;
+grant update (display_name, upi_id, avatar_emoji, avatar_color) on public.profiles to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Groups
@@ -278,6 +286,19 @@ begin
   if not is_owner(p_group_id) then raise exception 'Only the group owner can rename the group'; end if;
   if coalesce(trim(p_name), '') = '' then raise exception 'Give the group a name'; end if;
   update groups set name = trim(p_name) where id = p_group_id;
+end;
+$$;
+
+-- Owner sets the group's picture ('' or null clears either part)
+create function public.set_group_avatar(p_group_id uuid, p_emoji text, p_color text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not is_owner(p_group_id) then raise exception 'Only the group owner can change the group picture'; end if;
+  update groups
+  set avatar_emoji = nullif(trim(p_emoji), ''), avatar_color = nullif(trim(p_color), '')
+  where id = p_group_id;
 end;
 $$;
 
@@ -315,6 +336,8 @@ returns table (
   display_name text,
   email text,
   upi_id text,
+  avatar_emoji text,
+  avatar_color text,
   is_member boolean,
   is_owner boolean,
   net numeric
@@ -342,6 +365,8 @@ as $$
     pr.display_name,
     pr.email,
     pr.upi_id,
+    pr.avatar_emoji,
+    pr.avatar_color,
     exists (select 1 from group_members m where m.group_id = p_group_id and m.user_id = p.uid),
     g.owner_id = p.uid,
     coalesce((select sum(f.amt) from flows f where f.uid = p.uid), 0)
@@ -349,7 +374,7 @@ as $$
   join profiles pr on pr.id = p.uid
   join groups g on g.id = p_group_id
   where is_member(p_group_id)
-  order by 5 desc, 2;
+  order by 7 desc, 2;
 $$;
 
 -- Who owes whom, per bucket. Within a bucket, debts between the same two
@@ -400,7 +425,9 @@ returns table (
   my_owe numeric,
   my_owed numeric,
   created_at timestamptz,
-  last_activity timestamptz
+  last_activity timestamptz,
+  avatar_emoji text,
+  avatar_color text
 )
 language sql stable security definer set search_path = public
 as $$
@@ -418,7 +445,9 @@ as $$
       g.created_at,
       (select max(e.created_at) from expenses e where e.group_id = g.id),
       (select max(st.created_at) from settlements st where st.group_id = g.id)
-    )
+    ),
+    g.avatar_emoji,
+    g.avatar_color
   from groups g
   join group_members me on me.group_id = g.id and me.user_id = auth.uid()
   join profiles o on o.id = g.owner_id
@@ -806,6 +835,8 @@ returns table (
   currency text,
   from_user uuid,
   from_name text,
+  from_emoji text,
+  from_color text,
   total numeric,
   buckets jsonb,
   note text,
@@ -820,6 +851,8 @@ as $$
     g.currency,
     s.from_user,
     p.display_name,
+    p.avatar_emoji,
+    p.avatar_color,
     sum(s.amount),
     jsonb_agg(jsonb_build_object('bucket', s.bucket, 'amount', s.amount) order by s.amount desc),
     max(s.note),
@@ -829,7 +862,7 @@ as $$
   join profiles p on p.id = s.from_user
   where s.to_user = auth.uid() and s.status = 'pending'
     and exists (select 1 from group_members m where m.group_id = s.group_id and m.user_id = auth.uid())
-  group by s.batch_id, s.group_id, g.name, g.currency, s.from_user, p.display_name
+  group by s.batch_id, s.group_id, g.name, g.currency, s.from_user, p.display_name, p.avatar_emoji, p.avatar_color
   order by max(s.created_at) desc;
 $$;
 
@@ -976,13 +1009,15 @@ returns table (
   currency text,
   from_user uuid,
   from_name text,
+  from_emoji text,
+  from_color text,
   amount numeric,
   buckets jsonb,
   created_at timestamptz
 )
 language sql stable security definer set search_path = public
 as $$
-  select n.id, n.group_id, g.name, g.currency, n.from_user, p.display_name, n.amount, n.buckets, n.created_at
+  select n.id, n.group_id, g.name, g.currency, n.from_user, p.display_name, p.avatar_emoji, p.avatar_color, n.amount, n.buckets, n.created_at
   from nudges n
   join groups g on g.id = n.group_id
   join profiles p on p.id = n.from_user

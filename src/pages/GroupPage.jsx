@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { notifyPaymentsChanged, usePaymentsChanged } from '../context/InboxContext';
 import { notifyGroupsChanged } from '../context/GroupsContext';
+import { rememberLooks } from '../lib/avatars';
 import { api } from '../lib/api';
 import { bucketDebts, debtsByPair, formatMoney, fromCents, pendingKey, pendingPayments, toCents } from '../lib/money';
 import { bucketStyle, bucketsForGroup } from '../lib/buckets';
@@ -366,6 +367,11 @@ export default function GroupPage() {
         api.nudgeInfo(id),
       ]);
       setNudgeInfo(nudges);
+      rememberLooks([
+        [g.id, g.avatar_emoji, g.avatar_color],
+        ...b.map((p) => [p.user_id, p.avatar_emoji, p.avatar_color]),
+        ...req.map((r) => [r.user_id, r.profiles?.avatar_emoji, r.profiles?.avatar_color]),
+      ]);
       setGroup(g);
       setPeople(b);
       setExpenses(e);

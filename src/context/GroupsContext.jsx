@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from './AuthContext';
+import { rememberLooks } from '../lib/avatars';
 
 const GroupsContext = createContext(null);
 const EVENT = 'groups-changed';
@@ -19,7 +20,9 @@ export function GroupsProvider({ children }) {
   const refresh = useCallback(async () => {
     if (!userId) return setGroups(null);
     try {
-      setGroups(await api.myGroups());
+      const list = await api.myGroups();
+      rememberLooks(list.map((g) => [g.id, g.avatar_emoji, g.avatar_color]));
+      setGroups(list);
     } catch {
       setGroups((g) => g ?? []);
     }

@@ -35,7 +35,7 @@ const supabaseAuth = {
     if (error) throw error;
   },
   profile: async (id) => {
-    const { data } = await supabase.from('profiles').select('id, display_name, email, upi_id').eq('id', id).maybeSingle();
+    const { data } = await supabase.from('profiles').select('id, display_name, email, upi_id, avatar_emoji, avatar_color').eq('id', id).maybeSingle();
     return data;
   },
 };

@@ -6,7 +6,7 @@ import { bucketDebts, fromCents, toCents } from './money';
 import { isValidUpi } from './upi';
 
 // Bumped when the sample data's shape changes, so old demo data is replaced
-const KEY = 'splitzy-demo-v5';
+const KEY = 'splitzy-demo-v8';
 const SESSION_KEY = 'splitzy-demo-session';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -24,10 +24,13 @@ function seed() {
     password: 'demo',
     // Everyone but Pranav has a UPI ID, so his Settings shows the prompt
     upi_id: n === 'pranav' ? null : `${n}@okaxis`,
+    // A couple of people already picked an emoji
+    avatar_emoji: { aisha: '🦋', kabir: '🏄' }[n] ?? null,
+    avatar_color: { aisha: '#ffd60a' }[n] ?? null,
     created_at: daysAgo(30),
   }));
-  const goa = { id: uid(), name: 'Goa Trip', owner_id: me.id, currency: 'INR', nudge_after_days: 3, created_at: daysAgo(20) };
-  const flat = { id: uid(), name: 'Flat 302', owner_id: rahul.id, currency: 'INR', nudge_after_days: 3, created_at: daysAgo(25) };
+  const goa = { id: uid(), name: 'Goa Trip', owner_id: me.id, currency: 'INR', nudge_after_days: 3, avatar_emoji: '🏖️', avatar_color: '#30b0c7', created_at: daysAgo(20) };
+  const flat = { id: uid(), name: 'Flat 302', owner_id: rahul.id, currency: 'INR', nudge_after_days: 3, avatar_emoji: null, avatar_color: null, created_at: daysAgo(25) };
 
   const expense = (group, bucket, note, amount, paidBy, shares, ago, split_type = 'equal') => ({
     id: uid(),
@@ -191,10 +194,17 @@ export const mockAuth = {
   },
   profile: async (id) => {
     const u = load().users.find((x) => x.id === id);
-    return u ? { id: u.id, display_name: u.display_name, email: u.email, upi_id: u.upi_id ?? null } : null;
+    return u ? { id: u.id, display_name: u.display_name, email: u.email, upi_id: u.upi_id ?? null, avatar_emoji: u.avatar_emoji ?? null, avatar_color: u.avatar_color ?? null } : null;
   },
   // Demo helpers
-  users: () => load().users.map(({ id, display_name, email }) => ({ id, display_name, email })),
+  users: () =>
+    load().users.map(({ id, display_name, email, avatar_emoji, avatar_color }) => ({
+      id,
+      display_name,
+      email,
+      avatar_emoji: avatar_emoji ?? null,
+      avatar_color: avatar_color ?? null,
+    })),
   switchTo: (id) => setSession(id),
   reset: () => {
     try {
@@ -246,6 +256,8 @@ function balances(db, gid) {
         display_name: u.display_name,
         email: u.email,
         upi_id: u.upi_id ?? null,
+        avatar_emoji: u.avatar_emoji ?? null,
+        avatar_color: u.avatar_color ?? null,
         is_member: isMember(db, gid, user_id),
         is_owner: g.owner_id === user_id,
         net,
@@ -362,6 +374,15 @@ export const mockApi = {
     db.groups.push(g);
     db.members.push({ group_id: g.id, user_id: u, joined_at: now() });
     return g.id;
+  }),
+
+  setGroupAvatar: mutate((db, gid, { emoji, color }) => {
+    if (!isOwner(db, gid, me())) fail('Only the group owner can change the group picture');
+    if (emoji && (/[A-Za-z0-9<>&"]/.test(emoji) || [...emoji].length > 16)) fail('violates check constraint');
+    if (color && !/^#[0-9a-fA-F]{6}$/.test(color)) fail('violates check constraint');
+    const g = db.groups.find((x) => x.id === gid);
+    g.avatar_emoji = emoji || null;
+    g.avatar_color = color || null;
   }),
 
   renameGroup: mutate((db, gid, name) => {
@@ -506,6 +527,8 @@ export const mockApi = {
         currency: g.currency,
         from_user: s.from_user,
         from_name: userById(db, s.from_user).display_name,
+        from_emoji: userById(db, s.from_user).avatar_emoji ?? null,
+        from_color: userById(db, s.from_user).avatar_color ?? null,
         total: 0,
         buckets: [],
         note: s.note,
@@ -586,7 +609,8 @@ export const mockApi = {
       )
       .map((n) => {
         const g = db.groups.find((x) => x.id === n.group_id);
-        return { ...n, group_name: g.name, currency: g.currency, from_name: userById(db, n.from_user).display_name };
+        const from = userById(db, n.from_user);
+        return { ...n, group_name: g.name, currency: g.currency, from_name: from.display_name, from_emoji: from.avatar_emoji ?? null, from_color: from.avatar_color ?? null };
       })
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
   }),
@@ -666,7 +690,7 @@ export const mockApi = {
       .map((r) => {
         const g = db.groups.find((x) => x.id === r.group_id);
         const p = userById(db, r.user_id);
-        return { ...r, groups: { name: g.name, owner_id: g.owner_id }, profiles: { display_name: p.display_name, email: p.email } };
+        return { ...r, groups: { name: g.name, owner_id: g.owner_id }, profiles: { display_name: p.display_name, email: p.email, avatar_emoji: p.avatar_emoji ?? null, avatar_color: p.avatar_color ?? null } };
       });
   }),
 
@@ -688,6 +712,15 @@ export const mockApi = {
     if (userId !== me()) fail('Not allowed');
     if (!name?.trim()) fail('Name can’t be empty');
     userById(db, userId).display_name = name.trim().slice(0, 60);
+  }),
+
+  updateAvatar: mutate((db, userId, { emoji, color }) => {
+    if (userId !== me()) fail('Not allowed');
+    if (emoji && (/[A-Za-z0-9<>&"]/.test(emoji) || [...emoji].length > 16)) fail('violates check constraint');
+    if (color && !/^#[0-9a-fA-F]{6}$/.test(color)) fail('violates check constraint');
+    const u = userById(db, userId);
+    u.avatar_emoji = emoji || null;
+    u.avatar_color = color || null;
   }),
 
   updateUpi: mutate((db, userId, upi) => {

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from './AuthContext';
+import { rememberLooks } from '../lib/avatars';
 
 const InboxContext = createContext(null);
 const POLL_MS = 30000;
@@ -37,6 +38,7 @@ export function InboxProvider({ children }) {
       const [payments, reminders] = await Promise.all([api.pendingPayments(), api.myNudges()]);
       setItems(payments);
       setNudges(reminders);
+      rememberLooks([...payments, ...reminders].map((x) => [x.from_user, x.from_emoji, x.from_color]));
     } catch {
       // keep the last list; the next poll will retry
     }

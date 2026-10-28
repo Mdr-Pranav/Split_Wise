@@ -4,6 +4,7 @@ import Avatar from './Avatar';
 import InvitePanel from './InvitePanel';
 import JoinRequests from './JoinRequests';
 import ExportCard from './ExportCard';
+import AvatarPicker from './AvatarPicker';
 import { api } from '../lib/api';
 import { useToast } from '../context/ToastContext';
 import { notifyGroupsChanged } from '../context/GroupsContext';
@@ -60,6 +61,18 @@ export default function GroupSettings({ group, members, people, expenses, settle
   const owner = members.find((m) => m.is_owner);
   const [name, setName] = useState(group.name);
   const [saving, setSaving] = useState(false);
+  const [picking, setPicking] = useState(false);
+
+  const saveAvatar = async (look) => {
+    try {
+      await api.setGroupAvatar(group.id, look);
+      toast.success('Group picture updated');
+      onChange();
+      notifyGroupsChanged();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
 
   useEffect(() => setName(group.name), [group.name]);
 
@@ -150,8 +163,26 @@ export default function GroupSettings({ group, members, people, expenses, settle
     <div className={`flex flex-col gap-3 lg:grid lg:items-start lg:gap-4 ${isOwner ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
       <div className="contents lg:flex lg:flex-col lg:gap-4">
         <Card title="Group">
+          <div className="mb-2.5 flex items-center gap-2.5">
+            {isOwner ? (
+              <button
+                type="button"
+                onClick={() => setPicking((v) => !v)}
+                aria-expanded={picking}
+                aria-label="Change group picture"
+                title="Change group picture"
+                className="relative flex-shrink-0 rounded-full transition-transform duration-200 active:scale-95"
+              >
+                <Avatar id={group.id} name={group.name} size="lg" className="!ring-0" />
+                <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-brand-500 text-white ring-2 ring-[rgb(var(--card))]">
+                  <Icon name="pencil" className="h-2.5 w-2.5" strokeWidth={2.6} />
+                </span>
+              </button>
+            ) : (
+              <Avatar id={group.id} name={group.name} size="lg" className="flex-shrink-0 !ring-0" />
+            )}
           {isOwner ? (
-            <form onSubmit={rename} className="mb-2.5 flex items-center gap-2">
+            <form onSubmit={rename} className="flex min-w-0 flex-1 items-center gap-2">
               <input
                 aria-label="Group name"
                 className="input-field !py-2 text-[15px] font-medium"
@@ -167,7 +198,15 @@ export default function GroupSettings({ group, members, people, expenses, settle
               )}
             </form>
           ) : (
-            <p className="mb-2.5 truncate text-[17px] font-semibold text-ink">{group.name}</p>
+            <p className="min-w-0 flex-1 truncate text-[17px] font-semibold text-ink">{group.name}</p>
+          )}
+          </div>
+          {isOwner && (
+            <div className={`grid transition-[grid-template-rows,opacity] duration-500 ease-ios ${picking ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+              <div className="-mx-4 overflow-hidden">
+                <AvatarPicker id={group.id} name={group.name} emoji={group.avatar_emoji || ''} color={group.avatar_color || ''} onSave={saveAvatar} />
+              </div>
+            </div>
           )}
           <dl className="grid grid-cols-2 gap-2">
             <Fact label="Owner">

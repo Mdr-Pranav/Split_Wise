@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { api } from '../lib/api';
+import { rememberLooks } from '../lib/avatars';
 import { formatMoney, formatTotals } from '../lib/money';
 import { timeAgo } from '../lib/dates';
 import Icon from '../components/Icon';
@@ -118,6 +119,7 @@ export default function Dashboard() {
       const [g, r] = await Promise.all([api.myGroups(), api.pendingRequests()]);
       setGroups(g);
       setRequests(r);
+      rememberLooks(r.map((x) => [x.user_id, x.profiles?.avatar_emoji, x.profiles?.avatar_color]));
     } catch (err) {
       toast.error(err.message);
       setGroups([]);
