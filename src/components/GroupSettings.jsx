@@ -8,24 +8,28 @@ import { api } from '../lib/api';
 import { useToast } from '../context/ToastContext';
 import { notifyGroupsChanged } from '../context/GroupsContext';
 
-// `bodyClass` sizes the scrolling body (e.g. a max height on phones)
-function Card({ title, subtitle, children, className = '', bodyClass = '' }) {
+// Compact card: everything shows at its natural height, nothing scrolls inside
+function Card({ title, subtitle, action, children, className = '' }) {
   return (
-    <section className={`card flex flex-col overflow-hidden !p-0 ${className}`}>
-      <div className="px-4 pb-3 pt-4 sm:px-5">
-        <h2 className="text-[16px] font-semibold text-ink">{title}</h2>
-        {subtitle && <p className="mt-0.5 text-[12px] text-slate-500">{subtitle}</p>}
+    <section className={`card !p-0 ${className}`}>
+      <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-3.5">
+        <div className="min-w-0">
+          <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
+          {subtitle && <p className="text-[12px] text-slate-500">{subtitle}</p>}
+        </div>
+        {action}
       </div>
-      <div className={`min-h-0 overflow-y-auto overscroll-contain px-4 pb-4 sm:px-5 ${bodyClass}`}>{children}</div>
+      <div className="px-4 pb-4">{children}</div>
     </section>
   );
 }
 
-function Detail({ label, children }) {
+// Small labelled tile for group facts
+function Fact({ label, children, className = '' }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2">
-      <dt className="text-[14px] text-slate-500">{label}</dt>
-      <dd className="min-w-0 text-right text-[14px] font-medium text-ink">{children}</dd>
+    <div className={`min-w-0 rounded-xl bg-surface-elevated/50 px-3 py-2 ring-1 ring-line/[0.05] ${className}`}>
+      <dt className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">{label}</dt>
+      <dd className="mt-0.5 truncate text-[14px] font-medium text-ink">{children}</dd>
     </div>
   );
 }
@@ -93,98 +97,123 @@ export default function GroupSettings({ group, members, people, expenses, settle
 
   const created = new Date(group.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
+  const nudgeSelect = (
+    <select
+      aria-label="Nudges allowed after"
+      className="-ml-1 w-full cursor-pointer rounded-md bg-transparent px-1 text-[14px] font-medium text-ink focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+      value={group.nudge_after_days ?? 3}
+      onChange={async (e) => {
+        try {
+          await api.setNudgeAfter(group.id, Number(e.target.value));
+          toast.success('Reminder setting saved');
+          onChange();
+        } catch (err) {
+          toast.error(err.message);
+        }
+      }}
+    >
+      {NUDGE_OPTIONS.map(([v, label]) => (
+        <option key={v} value={v}>{label}</option>
+      ))}
+    </select>
+  );
+
+  const leaveOrDelete = isOwner
+    ? {
+        text: 'Hand ownership to someone first if you want to leave.',
+        label: 'Delete group',
+        icon: 'trash',
+        dialog: {
+          title: `Delete ${group.name}?`,
+          body: 'This removes the group, every expense and payment in it, for everyone. It can’t be undone.',
+          label: 'Delete group',
+          danger: true,
+          action: run(() => api.deleteGroup(group.id), 'Group deleted', onLeft),
+        },
+      }
+    : {
+        text: `Settle every bucket first. To rejoin you'll need a new code from ${owner?.display_name}.`,
+        label: 'Leave group',
+        icon: 'logout',
+        dialog: {
+          title: `Leave ${group.name}?`,
+          body: 'You’ll lose access to this group straight away.',
+          label: 'Leave group',
+          danger: true,
+          action: run(() => api.removeMember(group.id, me), 'You left the group', onLeft),
+        },
+      };
+
   return (
-    // Owner: details | join code + requests | export + danger. On phones the
-    // columns dissolve into one list so requests and the join code come first.
-    <div className={`flex flex-col gap-3 sm:gap-4 lg:grid lg:gap-5 ${isOwner ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
-      <div className="panel-lg contents lg:flex lg:flex-col lg:gap-5">
-        <Card title="Group details" className="flex-shrink-0">
+    // Owner: group + members | join code (+ requests) | export + danger.
+    // On phones it's one list with waiting requests and the join code first.
+    <div className={`flex flex-col gap-3 lg:grid lg:items-start lg:gap-4 ${isOwner ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
+      <div className="contents lg:flex lg:flex-col lg:gap-4">
+        <Card title="Group">
           {isOwner ? (
-            <form onSubmit={rename} className="mb-2">
-              <label htmlFor="group-name" className="label">Name</label>
-              <div className="flex gap-2">
-                <input id="group-name" className="input-field" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} required />
-                <button type="submit" disabled={saving || !name.trim() || name.trim() === group.name} className="btn-primary flex-shrink-0">
-                  Save
+            <form onSubmit={rename} className="mb-2.5 flex items-center gap-2">
+              <input
+                aria-label="Group name"
+                className="input-field !py-2 text-[15px] font-medium"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={60}
+                required
+              />
+              {name.trim() !== group.name && (
+                <button type="submit" disabled={saving || !name.trim()} className="btn-primary h-9 flex-shrink-0 !px-3" aria-label="Save name">
+                  <Icon name="check" className="h-4 w-4" strokeWidth={2.4} />
                 </button>
-              </div>
+              )}
             </form>
           ) : (
-            <Detail label="Name">{group.name}</Detail>
+            <p className="mb-2.5 truncate text-[17px] font-semibold text-ink">{group.name}</p>
           )}
-          <dl className="divide-y divide-surface-border">
-            <Detail label="Owner">
-              <span className="inline-flex items-center gap-2">
-                <Avatar id={owner?.user_id} name={owner?.display_name} size="sm" />
+          <dl className="grid grid-cols-2 gap-2">
+            <Fact label="Owner">
+              <span className="inline-flex items-center gap-1.5">
+                <Avatar id={owner?.user_id} name={owner?.display_name} size="sm" className="!h-5 !w-5 !text-[10px] !ring-0" />
                 {owner?.user_id === me ? 'You' : owner?.display_name}
               </span>
-            </Detail>
-            <Detail label="Currency">{group.currency}</Detail>
-            <Detail label="Nudges allowed">
-              {isOwner ? (
-                <select
-                  aria-label="Nudges allowed after"
-                  className="rounded-lg bg-surface-elevated/70 px-2 py-1 text-[14px] font-medium text-ink ring-1 ring-line/10 focus:outline-none focus:ring-brand-500/60"
-                  value={group.nudge_after_days ?? 3}
-                  onChange={async (e) => {
-                    try {
-                      await api.setNudgeAfter(group.id, Number(e.target.value));
-                      toast.success('Reminder setting saved');
-                      onChange();
-                    } catch (err) {
-                      toast.error(err.message);
-                    }
-                  }}
-                >
-                  {NUDGE_OPTIONS.map(([v, label]) => (
-                    <option key={v} value={v}>{label}</option>
-                  ))}
-                </select>
-              ) : (
-                NUDGE_OPTIONS.find(([v]) => v === (group.nudge_after_days ?? 3))?.[1] || `After ${group.nudge_after_days} days`
-              )}
-            </Detail>
-            <Detail label="Members">{members.length}</Detail>
-            <Detail label="Created">{created}</Detail>
+            </Fact>
+            <Fact label="Currency">{group.currency}</Fact>
+            <Fact label="Nudges">
+              {isOwner ? nudgeSelect : NUDGE_OPTIONS.find(([v]) => v === (group.nudge_after_days ?? 3))?.[1] || `After ${group.nudge_after_days} days`}
+            </Fact>
+            <Fact label="Created">{created}</Fact>
           </dl>
           {!isOwner && (
-            <p className="mt-3 flex items-start gap-2 rounded-2xl bg-surface-elevated/60 px-3.5 py-3 text-[13px] leading-relaxed text-slate-600">
-              <Icon name="crown" className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-600" />
-              {owner?.display_name} manages this group: inviting people, approving them and removing members. Ask them for a join code to bring someone in.
+            <p className="mt-2.5 flex items-start gap-1.5 text-[12px] leading-snug text-slate-500">
+              <Icon name="crown" className="mt-px h-3.5 w-3.5 flex-shrink-0 text-brand-600" />
+              {owner?.display_name} invites, approves and removes people. Ask them for a join code.
             </p>
           )}
         </Card>
 
-        <Card
-          title={`Members · ${members.length}`}
-          subtitle={isOwner ? 'Make someone else the owner, or remove people who are settled up.' : undefined}
-          className="lg:min-h-0 lg:flex-1"
-          bodyClass="scroll-fade max-h-[45vh] lg:max-h-none lg:flex-1"
-        >
-          <ul className="space-y-1">
+        <Card title={`Members · ${members.length}`}>
+          <ul className="-mx-1">
             {members.map((m) => (
-              <li key={m.user_id} className="flex flex-wrap items-center gap-3 rounded-2xl py-2">
-                <Avatar id={m.user_id} name={m.display_name} />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5 text-[15px] font-medium text-ink">
-                    <span className="truncate">{m.user_id === me ? `${m.display_name} (you)` : m.display_name}</span>
-                    {m.is_owner && <OwnerBadge />}
-                  </span>
-                  <span className="block truncate text-[13px] text-slate-500">{m.email}</span>
+              <li key={m.user_id} className="flex items-center gap-2.5 rounded-xl px-1 py-1.5" title={m.email}>
+                <Avatar id={m.user_id} name={m.display_name} size="sm" />
+                <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink">
+                  {m.user_id === me ? `${m.display_name} (you)` : m.display_name}
                 </span>
+                {m.is_owner && <OwnerBadge />}
                 {isOwner && !m.is_owner && (
-                  <span className="flex items-center gap-1">
+                  <span className="flex flex-shrink-0 items-center">
                     <button
                       type="button"
                       onClick={() => makeOwner(m)}
-                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[13px] font-medium text-brand-600 ring-1 ring-brand-500/30 transition-colors hover:bg-brand-500 hover:text-white"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-brand-500/10 hover:text-brand-600"
+                      aria-label={`Make ${m.display_name} the owner`}
+                      title="Make owner"
                     >
-                      <Icon name="crown" className="h-3.5 w-3.5" /> Make owner
+                      <Icon name="crown" className="h-4 w-4" />
                     </button>
                     <button
                       type="button"
                       onClick={() => remove(m)}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-surface-elevated hover:text-rose-600"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-rose-500/10 hover:text-rose-600"
                       aria-label={`Remove ${m.display_name}`}
                       title="Remove from group"
                     >
@@ -199,74 +228,28 @@ export default function GroupSettings({ group, members, people, expenses, settle
       </div>
 
       {isOwner && (
-        <div className="panel-lg max-lg:-order-1">
-          <InvitePanel group={group} invites={invites} onChange={onChange} />
+        <div className="contents lg:flex lg:flex-col lg:gap-4">
+          {requests.length > 0 && (
+            <Card title="Asking to join" subtitle="Used one of your codes" className="shadow-[0_14px_36px_-16px_rgb(255_159_10/0.55)] ring-1 ring-amber-400/50 max-lg:-order-2">
+              <JoinRequests requests={requests} onChange={onChange} />
+            </Card>
+          )}
+          <div className="max-lg:-order-1">
+            <InvitePanel group={group} invites={invites} onChange={onChange} />
+          </div>
         </div>
       )}
 
-      <div className="panel-lg contents lg:flex lg:flex-col lg:gap-5">
-        {isOwner && (
-          <Card
-            title="Asking to join"
-            subtitle="People who used one of your codes."
-            className={`lg:min-h-0 lg:flex-1 ${requests.length ? 'ring-1 ring-amber-400/40 max-lg:-order-2' : ''}`}
-            bodyClass="scroll-fade max-h-60 lg:max-h-none lg:flex-1"
-          >
-            {requests.length ? (
-              <JoinRequests requests={requests} onChange={onChange} />
-            ) : (
-              <p className="text-[14px] text-slate-500">No one is waiting right now.</p>
-            )}
-          </Card>
-        )}
-
+      <div className="contents lg:flex lg:flex-col lg:gap-4">
         <ExportCard group={group} people={people} expenses={expenses} settlements={settlements} Card={Card} />
 
-
-        <Card title={isOwner ? 'Danger zone' : 'Leave group'} className="flex-shrink-0 ring-1 ring-rose-500/15">
-          {isOwner ? (
-            <div className="space-y-4">
-              <p className="text-[14px] leading-relaxed text-slate-600">
-                Want to leave? Make someone else the owner first, then leave from here.
-              </p>
-              <button
-                type="button"
-                onClick={() =>
-                  confirm({
-                    title: `Delete ${group.name}?`,
-                    body: 'This removes the group, every expense and payment in it, for everyone. It can’t be undone.',
-                    label: 'Delete group',
-                    danger: true,
-                    action: run(() => api.deleteGroup(group.id), 'Group deleted', onLeft),
-                  })
-                }
-                className="btn-secondary w-full !text-rose-600"
-              >
-                <Icon name="trash" className="h-4 w-4" /> Delete group
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <p className="text-[14px] leading-relaxed text-slate-600">
-                You need to be settled up in every bucket first. To come back you'll need a new code from {owner?.display_name}.
-              </p>
-              <button
-                type="button"
-                onClick={() =>
-                  confirm({
-                    title: `Leave ${group.name}?`,
-                    body: 'You’ll lose access to this group straight away.',
-                    label: 'Leave group',
-                    danger: true,
-                    action: run(() => api.removeMember(group.id, me), 'You left the group', onLeft),
-                  })
-                }
-                className="btn-secondary w-full !text-rose-600"
-              >
-                Leave group
-              </button>
-            </div>
-          )}
+        <Card title={isOwner ? 'Danger zone' : 'Leave group'} className="ring-1 ring-rose-500/15">
+          <div className="flex items-center gap-3">
+            <p className="min-w-0 flex-1 text-[12px] leading-snug text-slate-500">{leaveOrDelete.text}</p>
+            <button type="button" onClick={() => confirm(leaveOrDelete.dialog)} className="btn-secondary h-9 flex-shrink-0 !px-3.5 !text-[13px] !text-rose-600">
+              <Icon name={leaveOrDelete.icon} className="h-4 w-4" /> {leaveOrDelete.label}
+            </button>
+          </div>
         </Card>
       </div>
     </div>

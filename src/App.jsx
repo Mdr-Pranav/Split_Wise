@@ -46,6 +46,10 @@ function PublicOnly({ children }) {
 export default function App() {
   return (
     <BrowserRouter>
+      <div className="ambient" aria-hidden="true">
+        <span />
+        <span />
+      </div>
       <ToastProvider>
         <AuthProvider>
           <InboxProvider>

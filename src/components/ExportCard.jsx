@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import Icon from './Icon';
-import Segmented from './Segmented';
 import { exportCsv, exportPdf } from '../lib/exportGroup';
 import { today } from '../lib/dates';
 import { useToast } from '../context/ToastContext';
@@ -48,42 +47,38 @@ export default function ExportCard({ group, people, expenses, settlements, Card 
   };
 
   return (
-    <Card title="Export history" subtitle="Download everything, e.g. when a trip ends or someone moves out." className="flex-shrink-0">
-      <div className="space-y-3">
-        <Segmented
-          label="Date range"
-          size="sm"
-          className="flex w-full"
+    <Card
+      title="Export history"
+      action={
+        <select
+          aria-label="Date range"
           value={range}
-          onChange={setRange}
-          options={[
-            { value: 'all', label: 'All' },
-            { value: 'month', label: 'This month' },
-            { value: 'last', label: 'Last month' },
-            { value: 'custom', label: 'Custom' },
-          ]}
-        />
+          onChange={(e) => setRange(e.target.value)}
+          className="cursor-pointer rounded-full bg-surface-elevated/70 px-3 py-1 text-[12px] font-medium text-ink ring-1 ring-line/10 focus:outline-none focus:ring-brand-500/60"
+        >
+          <option value="all">All time</option>
+          <option value="month">This month</option>
+          <option value="last">Last month</option>
+          <option value="custom">Custom…</option>
+        </select>
+      }
+    >
+      <div className="space-y-2.5">
         {range === 'custom' && (
           <div className="grid grid-cols-2 gap-2">
-            <label className="text-[12px] text-slate-500">
-              From
-              <input type="date" className="input-field mt-1 !py-2" value={custom.from} max={custom.to || today()} onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))} />
-            </label>
-            <label className="text-[12px] text-slate-500">
-              To
-              <input type="date" className="input-field mt-1 !py-2" value={custom.to} min={custom.from || undefined} max={today()} onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))} />
-            </label>
+            <input type="date" aria-label="From" className="input-field !py-1.5 text-[13px]" value={custom.from} max={custom.to || today()} onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))} />
+            <input type="date" aria-label="To" className="input-field !py-1.5 text-[13px]" value={custom.to} min={custom.from || undefined} max={today()} onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))} />
           </div>
         )}
-        <p className="text-[13px] text-slate-500">
-          {counts.expenses} expense{counts.expenses === 1 ? '' : 's'} · {counts.payments} payment{counts.payments === 1 ? '' : 's'} in range
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => run('csv')} disabled={Boolean(busy)} className="btn-secondary">
-            <Icon name="download" className="h-4 w-4" /> {busy === 'csv' ? 'Preparing…' : 'CSV'}
+        <div className="flex items-center gap-2">
+          <p className="min-w-0 flex-1 text-[12px] leading-snug text-slate-500">
+            {counts.expenses} expense{counts.expenses === 1 ? '' : 's'} · {counts.payments} payment{counts.payments === 1 ? '' : 's'}
+          </p>
+          <button type="button" onClick={() => run('csv')} disabled={Boolean(busy)} className="btn-secondary h-9 !px-3 !text-[13px]">
+            <Icon name="download" className="h-4 w-4" /> {busy === 'csv' ? '…' : 'CSV'}
           </button>
-          <button type="button" onClick={() => run('pdf')} disabled={Boolean(busy)} className="btn-primary">
-            <Icon name="download" className="h-4 w-4" /> {busy === 'pdf' ? 'Preparing…' : 'PDF report'}
+          <button type="button" onClick={() => run('pdf')} disabled={Boolean(busy)} className="btn-primary h-9 !px-3 !text-[13px]">
+            <Icon name="download" className="h-4 w-4" /> {busy === 'pdf' ? '…' : 'PDF'}
           </button>
         </div>
       </div>

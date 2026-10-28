@@ -116,6 +116,8 @@ const supabaseApi = {
 
   updateDisplayName: (userId, name) =>
     query(supabase.from('profiles').update({ display_name: name.trim() }).eq('id', userId)),
+  // Empty string clears it
+  updateUpi: (userId, upi) => query(supabase.from('profiles').update({ upi_id: upi.trim() || null }).eq('id', userId)),
 };
 
 // No Supabase keys → run against the local demo backend

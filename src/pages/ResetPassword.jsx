@@ -29,7 +29,7 @@ export default function ResetPassword() {
   if (!authLoading && !session) {
     return (
       <AuthShell title="Link expired." subtitle="Try again.">
-        <div className="card p-7 text-center shadow-glow sm:p-8">
+        <div className="card p-7 text-center sm:p-8">
           <Link to="/forgot-password" className="btn-primary w-full">Request a new link</Link>
         </div>
       </AuthShell>
@@ -38,7 +38,7 @@ export default function ResetPassword() {
 
   return (
     <AuthShell title="New password." subtitle="Make it a good one.">
-      <form onSubmit={handleSubmit} className="card space-y-5 p-7 shadow-glow sm:p-8">
+      <form onSubmit={handleSubmit} className="card space-y-5 p-7 sm:p-8">
         <ErrorNote>{error}</ErrorNote>
         <div>
           <label htmlFor="password" className="label">New password</label>

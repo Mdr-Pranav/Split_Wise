@@ -1,23 +1,32 @@
 import { useId } from 'react';
 
-// Rounded tile with a "%"-style split mark
+// The Splitzy mark: a coin zapped in two by a zig-zag bolt (the "Z").
+// The two halves are the same coin clipped either side of the bolt and
+// nudged apart. public/favicon.svg and the app icons are drawn the same way.
+export const BOLT_LEFT = '0,0 19.6,0 18,4 13.5,15 18.5,17 14,28 12.4,32 0,32';
+export const BOLT_RIGHT = '19.6,0 32,0 32,32 12.4,32 14,28 18.5,17 13.5,15 18,4';
+
 export default function Logo({ className = 'h-6 w-6' }) {
-  // Unique per instance so a hidden copy can't break the gradient reference
-  const gradientId = useId();
+  // Unique per instance so a hidden copy can't break the references
+  const id = useId();
 
   return (
     <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
       <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="rgb(var(--brand-400))" />
-          <stop offset="1" stopColor="rgb(var(--brand-700))" />
-        </linearGradient>
+        <clipPath id={`${id}l`}>
+          <polygon points={BOLT_LEFT} />
+        </clipPath>
+        <clipPath id={`${id}r`}>
+          <polygon points={BOLT_RIGHT} />
+        </clipPath>
       </defs>
-      <rect width="32" height="32" rx="9" fill={`url(#${gradientId})`} />
-      <rect x="0.5" y="0.5" width="31" height="31" rx="8.5" fill="none" stroke="rgba(255,255,255,0.35)" />
-      <path d="M10.5 21.5l11-11" stroke="#ffffff" strokeWidth="2.8" strokeLinecap="round" />
-      <circle cx="11" cy="11" r="2.6" fill="#ffffff" />
-      <circle cx="21" cy="21" r="2.6" fill="#ffffff" />
+      <rect width="32" height="32" rx="9" fill="#007aff" />
+      <g clipPath={`url(#${id}l)`}>
+        <circle cx="14.3" cy="15.1" r="9.5" fill="#ffffff" />
+      </g>
+      <g clipPath={`url(#${id}r)`}>
+        <circle cx="17.7" cy="16.9" r="9.5" fill="#a9b8dc" />
+      </g>
     </svg>
   );
 }

@@ -17,6 +17,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import ExpenseModal from '../components/ExpenseModal';
 import SettleModal from '../components/SettleModal';
 import GroupSettings from '../components/GroupSettings';
+import Switch from '../components/Switch';
 import { GlowCard } from '../components/Glow';
 
 function DateBadge({ ymd }) {
@@ -109,7 +110,6 @@ function SettlementRow({ s, me, nameOf, currency, onClick }) {
 // One person's debt to another, broken into buckets that clear separately
 // `nudge` (only when the viewer is owed): { state: 'ready' | 'sent' | 'wait', days }
 function DebtCard({ pair, me, nameOf, currency, pending, canSettle, onClear, onClearAll, nudge, onNudge }) {
-  const involved = pair.debtor === me || pair.creditor === me;
   const tone = pair.debtor === me ? 'text-rose-600' : pair.creditor === me ? 'text-emerald-600' : 'text-ink';
   const creditor = pair.creditor === me ? 'you' : nameOf(pair.creditor);
   const rows = pair.buckets.map((b) => {
@@ -118,7 +118,7 @@ function DebtCard({ pair, me, nameOf, currency, pending, canSettle, onClear, onC
   });
   const payableBuckets = rows.filter((r) => r.payable > 0);
   return (
-    <li className={`rounded-2xl p-3 ${involved ? 'bg-brand-500/[0.06] ring-1 ring-brand-500/20' : 'bg-surface-elevated/50'}`}>
+    <li className="rounded-2xl bg-[rgb(var(--line)/0.05)] p-3">
       <div className="flex items-center gap-2.5 px-1 pb-2">
         <div className="flex -space-x-2">
           <Avatar id={pair.debtor} name={nameOf(pair.debtor)} size="sm" />
@@ -249,6 +249,7 @@ function BalancesPanel({ view, onView, pairs, expenses, me, nameOf, currency, pe
         />
       </div>
       <div className="scroll-fade min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 sm:px-5">
+        <div key={view} className="tab-in">
         {view === 'you' && (
           <>
             <GlowCard className="mb-3 !rounded-2xl">
@@ -302,6 +303,7 @@ function BalancesPanel({ view, onView, pairs, expenses, me, nameOf, currency, pe
           ) : (
             <p className="py-10 text-center text-[14px] text-slate-600">No spending yet.</p>
           ))}
+        </div>
       </div>
     </section>
   );
@@ -637,6 +639,7 @@ export default function GroupPage() {
 
 
       {tab === 'settings' && (
+        <div className="tab-in">
         <GroupSettings
           group={group}
           members={members}
@@ -652,25 +655,20 @@ export default function GroupPage() {
           run={run}
           onLeft={() => navigate('/')}
         />
+        </div>
       )}
 
       <div className={`grid grid-cols-[minmax(0,1fr)] gap-3 sm:gap-4 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-5 ${tab === 'settings' ? 'hidden' : ''}`}>
-        <div className={`panel-h min-w-0 ${tabCls('activity')}`}>
+        <div key={`a-${tab === 'settings' ? 's' : 'o'}-${tab === 'activity'}`} className={`panel-h tab-in min-w-0 ${tabCls('activity')}`}>
           <Section
             title="Activity"
             count={activityCount || null}
             className="h-full"
             action={
-              <button
-                type="button"
-                onClick={() => setMineOnly((v) => !v)}
-                aria-pressed={mineOnly}
-                className={`rounded-full px-3 py-1 text-[12px] font-medium transition-colors ${
-                  mineOnly ? 'bg-brand-500 text-white' : 'bg-surface-elevated/70 text-slate-600 hover:text-ink'
-                }`}
-              >
+              <label className="flex cursor-pointer items-center gap-2 text-[13px] font-medium text-slate-600">
                 Only mine
-              </button>
+                <Switch checked={mineOnly} onChange={setMineOnly} label="Only show activity involving me" />
+              </label>
             }
             toolbar={
               <div className="flex-shrink-0 space-y-2 px-4 pb-3 sm:px-5">
@@ -747,7 +745,7 @@ export default function GroupPage() {
           </Section>
         </div>
 
-        <div className={`panel-h min-w-0 ${tabCls('balances')}`}>
+        <div key={`b-${tab === 'settings' ? 's' : 'o'}-${tab === 'balances'}`} className={`panel-h tab-in min-w-0 ${tabCls('balances')}`}>
           <BalancesPanel
             view={balanceView}
             onView={setBalanceView}

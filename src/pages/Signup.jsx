@@ -29,7 +29,7 @@ export default function Signup() {
   if (sentTo) {
     return (
       <AuthShell title="Check your inbox." subtitle="One click to go.">
-        <div className="card space-y-4 p-7 text-center shadow-glow sm:p-8">
+        <div className="card space-y-4 p-7 text-center sm:p-8">
           <p className="text-[15px] leading-relaxed text-slate-600">
             We sent a confirmation link to <span className="font-medium text-ink">{sentTo}</span>. Open it on this device to finish signing up.
           </p>
@@ -41,7 +41,7 @@ export default function Signup() {
 
   return (
     <AuthShell title="Split anything." subtitle="With anyone." tagline="Create your account to start a group.">
-      <form onSubmit={handleSubmit} className="card space-y-5 p-7 shadow-glow sm:p-8">
+      <form onSubmit={handleSubmit} className="card space-y-5 p-7 sm:p-8">
         <ErrorNote>{error}</ErrorNote>
         <div>
           <label htmlFor="name" className="label">Your name</label>

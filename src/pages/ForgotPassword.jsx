@@ -26,7 +26,7 @@ export default function ForgotPassword() {
 
   return (
     <AuthShell title="Forgot it?" subtitle="Happens to everyone.">
-      <form onSubmit={handleSubmit} className="card space-y-5 p-7 shadow-glow sm:p-8">
+      <form onSubmit={handleSubmit} className="card space-y-5 p-7 sm:p-8">
         {sent ? (
           <p className="text-[15px] leading-relaxed text-slate-600">
             If an account exists for <span className="font-medium text-ink">{email}</span>, a reset link is on its way.

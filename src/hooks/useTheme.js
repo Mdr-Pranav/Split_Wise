@@ -12,12 +12,15 @@ export function useTheme() {
   useEffect(() => {
     const root = document.documentElement;
     if (root.classList.contains('dark') !== (theme === 'dark')) {
+      // Cross-fade colours while switching, then drop the transition rule
+      root.classList.add('theme-switching');
       root.classList.toggle('dark', theme === 'dark');
       window.dispatchEvent(new Event('themechange'));
+      setTimeout(() => root.classList.remove('theme-switching'), 500);
     }
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute('content', theme === 'dark' ? '#010206' : '#e3ecfe');
+      ?.setAttribute('content', theme === 'dark' ? '#000000' : '#f2f2f7');
   }, [theme]);
 
   // Keep every toggle on the page in step (header button and Settings)

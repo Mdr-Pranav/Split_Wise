@@ -2,6 +2,7 @@
 // Built in the browser from what the group page already loaded.
 
 import { bucketDebts, fromCents, toCents } from './money';
+import { APP_NAME } from './brand';
 
 const STATUS = { confirmed: 'Confirmed', pending: 'Waiting for confirmation', rejected: 'Declined' };
 
@@ -159,7 +160,7 @@ export async function exportPdf(input) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
   doc.setTextColor(...muted);
-  doc.text(`Split Wise expense history  ·  ${rangeLabel}  ·  Generated ${niceDate(today())}`, margin + 36, y + 27);
+  doc.text(`${APP_NAME} expense history  ·  ${rangeLabel}  ·  Generated ${niceDate(today())}`, margin + 36, y + 27);
   y += 50;
 
   // Headline numbers

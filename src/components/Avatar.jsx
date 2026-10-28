@@ -1,18 +1,10 @@
-const palettes = [
-  'from-brand-400 to-accent2-700',
-  'from-sky-400 to-blue-700',
-  'from-violet-400 to-indigo-700',
-  'from-cyan-400 to-teal-700',
-  'from-fuchsia-400 to-purple-700',
-  'from-amber-400 to-orange-600',
-  'from-emerald-400 to-teal-700',
-  'from-rose-400 to-pink-700',
-];
+// Solid iOS system colours, picked from the id so a person keeps theirs
+const colours = ['#007aff', '#34c759', '#ff9500', '#af52de', '#ff2d55', '#5ac8fa', '#5856d6', '#a2845e'];
 
 function pick(seed = '') {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
-  return palettes[Math.abs(h) % palettes.length];
+  return colours[Math.abs(h) % colours.length];
 }
 
 const sizes = {
@@ -25,7 +17,8 @@ export default function Avatar({ id, name = '?', size = 'md', className = '' }) 
   return (
     <span
       aria-hidden="true"
-      className={`inline-flex flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br font-semibold text-white ring-2 ring-white/70 dark:ring-white/10 ${pick(id || name)} ${sizes[size]} ${className}`}
+      style={{ backgroundColor: pick(id || name) }}
+      className={`inline-flex flex-shrink-0 items-center justify-center rounded-full font-semibold text-white ring-2 ring-[var(--wall)] ${sizes[size]} ${className}`}
     >
       {name.trim().charAt(0).toUpperCase() || '?'}
     </span>

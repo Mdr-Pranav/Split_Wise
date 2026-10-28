@@ -26,7 +26,7 @@ export default function Login() {
 
   return (
     <AuthShell title="Welcome back." subtitle="Let's settle up." tagline="Split bills with friends, minus the awkward maths.">
-      <form onSubmit={handleSubmit} className="card space-y-5 p-7 shadow-glow sm:p-8">
+      <form onSubmit={handleSubmit} className="card space-y-5 p-7 sm:p-8">
         <ErrorNote>{error}</ErrorNote>
         <div>
           <label htmlFor="email" className="label">Email</label>

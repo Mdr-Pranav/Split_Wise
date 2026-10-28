@@ -1,4 +1,4 @@
--- Split Wise database
+-- Splitzy database
 -- Run once in a fresh Supabase project: Dashboard → SQL Editor → paste → Run.
 --
 -- Security model: every table has row level security. The browser can only
@@ -17,6 +17,8 @@ create table public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   display_name text not null check (char_length(display_name) between 1 and 60),
   email text not null,
+  -- e.g. name@okhdfcbank; lets group-mates pay them straight from the app
+  upi_id text check (upi_id ~ '^[A-Za-z0-9._-]{2,64}@[A-Za-z][A-Za-z0-9.-]{1,63}$'),
   created_at timestamptz not null default now()
 );
 
@@ -242,7 +244,7 @@ create policy "see own nudges" on public.nudges
 grant usage on schema public to anon, authenticated;
 revoke all on all tables in schema public from anon, authenticated;
 grant select on all tables in schema public to authenticated;
-grant update (display_name) on public.profiles to authenticated;
+grant update (display_name, upi_id) on public.profiles to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Groups
@@ -312,6 +314,7 @@ returns table (
   user_id uuid,
   display_name text,
   email text,
+  upi_id text,
   is_member boolean,
   is_owner boolean,
   net numeric
@@ -338,6 +341,7 @@ as $$
     p.uid,
     pr.display_name,
     pr.email,
+    pr.upi_id,
     exists (select 1 from group_members m where m.group_id = p_group_id and m.user_id = p.uid),
     g.owner_id = p.uid,
     coalesce((select sum(f.amt) from flows f where f.uid = p.uid), 0)
@@ -345,7 +349,7 @@ as $$
   join profiles pr on pr.id = p.uid
   join groups g on g.id = p_group_id
   where is_member(p_group_id)
-  order by 4 desc, 2;
+  order by 5 desc, 2;
 $$;
 
 -- Who owes whom, per bucket. Within a bucket, debts between the same two

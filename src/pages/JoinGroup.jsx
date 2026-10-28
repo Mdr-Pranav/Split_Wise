@@ -34,7 +34,7 @@ export default function JoinGroup() {
   if (result) {
     return (
       <div className="card mx-auto max-w-md p-7 text-center sm:p-9">
-        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-400 to-accent2-700 text-white shadow-glow">
+        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-500 text-white">
           <Icon name="clock" className="h-8 w-8" />
         </div>
         <h1 className="text-[26px] font-semibold text-ink">Request sent</h1>
@@ -53,7 +53,7 @@ export default function JoinGroup() {
         <h1 className="text-[34px] font-semibold leading-tight text-ink sm:text-[42px]">Join a group</h1>
         <p className="mt-2 text-[15px] text-slate-600">Enter the one-time code the group owner gave you.</p>
       </div>
-      <form onSubmit={submit} className="card space-y-5 p-7 shadow-glow sm:p-8">
+      <form onSubmit={submit} className="card space-y-5 p-7 sm:p-8">
         <ErrorNote>{error}</ErrorNote>
         <div>
           <label htmlFor="code" className="label">Invite code</label>

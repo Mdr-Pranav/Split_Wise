@@ -1,44 +1,28 @@
-import { useId } from 'react';
-
-// Deep-blue gradient card with soft light blobs (same look as Finance
-// Monitor's health score card). Put white text and GlowRing inside.
-// `className` sizes the card; `bodyClassName` lays out its content.
-export function GlowCard({ className = '', bodyClassName = '', children }) {
+// iOS hero card: one solid system colour (blue, or red for tone="danger")
+// with white content and a soft glow of the same colour around it.
+// `className` sizes the card, `bodyClassName` lays out its content.
+export function GlowCard({ className = '', bodyClassName = '', tone, children }) {
   return (
     <div
-      className={`relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-500 via-brand-600 to-accent2-800 text-white shadow-glow ring-1 ring-white/25 dark:from-brand-800 dark:via-brand-900 dark:to-brand-950 dark:ring-white/10 ${className}`}
+      className={`relative overflow-hidden rounded-3xl text-white transition-colors duration-500 ease-ios ${
+        tone === 'danger' ? 'glow-red bg-[#ff3b30] dark:bg-[#ff453a]' : 'glow-blue bg-[#007aff] dark:bg-[#0a84ff]'
+      } ${className}`}
     >
-      <div aria-hidden="true" className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-white/25 blur-3xl" />
-      <div aria-hidden="true" className="pointer-events-none absolute -bottom-24 -left-10 h-56 w-56 rounded-full bg-sky-300/30 blur-3xl" />
       <div className={`relative ${bodyClassName}`}>{children}</div>
     </div>
   );
 }
 
-// White progress ring with a soft glow; `value` is 0..1
+// White progress ring with a soft glow on a translucent track; `value` is 0..1
 export function GlowRing({ value, size = 168, strokeWidth = 10, children }) {
-  const glowId = useId();
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const clamped = Math.min(Math.max(value, 0), 1);
-  // Filter region padded past the ring so the blur fades out instead of clipping
-  const pad = 32;
 
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90 overflow-visible" aria-hidden="true">
-        <defs>
-          <filter id={glowId} filterUnits="userSpaceOnUse" x={-pad} y={-pad} width={size + pad * 2} height={size + pad * 2}>
-            <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur" />
-            <feFlood floodColor="rgb(var(--brand-200))" floodOpacity="0.6" />
-            <feComposite in2="blur" operator="in" result="glow" />
-            <feMerge>
-              <feMergeNode in="glow" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth={strokeWidth} />
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="rgba(255,255,255,0.28)" strokeWidth={strokeWidth} />
         {clamped > 0 && (
           <circle
             cx={size / 2}
@@ -50,8 +34,7 @@ export function GlowRing({ value, size = 168, strokeWidth = 10, children }) {
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={circumference * (1 - clamped)}
-            className="transition-[stroke-dashoffset] duration-1000 ease-out"
-            filter={`url(#${glowId})`}
+            className="transition-[stroke-dashoffset] duration-1000 ease-ios [filter:drop-shadow(0_0_6px_rgba(255,255,255,0.6))]"
           />
         )}
       </svg>

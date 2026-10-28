@@ -4,6 +4,8 @@ import Avatar from './Avatar';
 import Icon from './Icon';
 import BucketIcon from './BucketIcon';
 import { ErrorNote } from './AuthShell';
+import UpiPay from './UpiPay';
+import { APP_NAME } from '../lib/brand';
 import { api } from '../lib/api';
 import { currencySymbol, formatMoney, fromCents, pendingKey, toCents } from '../lib/money';
 
@@ -46,6 +48,9 @@ export default function SettleModal({ open, onClose, group, people, me, isOwner,
   const reverseOwed = debts.some((d) => d.debtor === to && d.creditor === from);
   const totalCents = owed.reduce((a, d) => a + d.cents, 0);
   const receiver = to === me;
+  // Paying someone with a UPI ID: offer to open the UPI app first
+  const payeeUpi = from === me && group.currency === 'INR' ? people.find((p) => p.user_id === to)?.upi_id : null;
+  const payCents = bucket === ALL ? totalCents : toCents(amount);
   const selected = owed.find((d) => d.bucket === bucket);
 
   // Whenever the pair changes, start from "everything" (or the only bucket)
@@ -77,7 +82,7 @@ export default function SettleModal({ open, onClose, group, people, me, isOwner,
   const cur = group.currency;
 
   const save = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (!isOwner && from !== me && to !== me) return setError('You can only record payments you made or received');
     setError('');
     setBusy(true);
@@ -224,6 +229,21 @@ export default function SettleModal({ open, onClose, group, people, me, isOwner,
               <input id="settle-note" className="input-field" value={note} onChange={(e) => setNote(e.target.value)} maxLength={120} placeholder="UPI, cash…" />
             </div>
 
+            {payeeUpi && payCents > 0 && (!selected || payCents <= selected.cents || bucket === ALL) ? (
+              <>
+                <UpiPay
+                  payee={nameOf(to)}
+                  vpa={payeeUpi}
+                  amount={fromCents(payCents)}
+                  note={`${APP_NAME} · ${group.name} · ${bucket === ALL ? owed.map((d) => d.bucket).join(', ') : bucket}`}
+                  busy={busy}
+                  onPaid={() => save()}
+                />
+                <button type="submit" disabled={busy} className="block w-full text-center text-[13px] font-medium text-slate-500 hover:text-ink">
+                  Paid another way (cash, bank)? Just send it to confirm
+                </button>
+              </>
+            ) : (
             <button type="submit" disabled={busy} className="btn-primary h-12 w-full">
               {busy
                 ? 'Saving…'
@@ -235,6 +255,12 @@ export default function SettleModal({ open, onClose, group, people, me, isOwner,
                       ? `Clear ${bucket}`
                       : 'Record part payment'}
             </button>
+            )}
+            {from === me && !payeeUpi && group.currency === 'INR' && (
+              <p className="text-center text-[12px] text-slate-500">
+                {nameOf(to)} hasn’t added a UPI ID yet, so pay them any way you like and record it here.
+              </p>
+            )}
           </>
         )}
       </form>

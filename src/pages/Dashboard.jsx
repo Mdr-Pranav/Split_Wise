@@ -11,6 +11,7 @@ import Avatar from '../components/Avatar';
 import { GlowCard, GlowRing } from '../components/Glow';
 import JoinRequests from '../components/JoinRequests';
 import CreateGroupModal from '../components/CreateGroupModal';
+import { InstallBanner } from '../components/InstallApp';
 
 // Glowing summary: the ring shows how much of the open money is coming to you
 function BalanceHero({ owed, owe, net, netTotal, onNewGroup }) {
@@ -19,15 +20,24 @@ function BalanceHero({ owed, owe, net, netTotal, onNewGroup }) {
   const outflow = sum(owe);
   const square = Math.abs(inflow) < 0.005 && Math.abs(outflow) < 0.005;
   const status = square ? 'All square' : netTotal > 0.004 ? "You're ahead" : netTotal < -0.004 ? "You're behind" : 'Evened out';
+  // Below zero overall: the ring, number and pill glow red instead of white
+  const negative = netTotal < -0.004;
+  const tone = negative ? 'danger' : undefined;
   return (
-    <GlowCard className="h-full" bodyClassName="flex h-full flex-col items-center justify-center px-6 py-7">
+    <GlowCard tone={tone} className="h-full" bodyClassName="flex h-full flex-col items-center justify-center px-6 py-7">
       <p className="mb-4 text-[11px] font-medium uppercase tracking-[0.08em] text-white/70">Overall balance</p>
       <GlowRing value={square ? 1 : inflow / (inflow + outflow)} size={188}>
         {/* No truncate here: clipping would box in the glow */}
-        <span className="text-glow whitespace-nowrap text-[24px] font-semibold tracking-[-0.03em] tabular-nums">{formatTotals(net)}</span>
+        <span className={`${negative ? 'text-glow-danger' : 'text-glow'} whitespace-nowrap text-[24px] font-semibold tracking-[-0.03em] tabular-nums`}>{formatTotals(net)}</span>
         <span className="mt-0.5 text-[13px] text-white/70">{square ? 'nothing open' : 'net'}</span>
       </GlowRing>
-      <span className="mt-5 inline-block rounded-full bg-white/15 px-3 py-1 text-[15px] font-semibold backdrop-blur">{status}</span>
+      <span
+        className={`mt-5 inline-block rounded-full px-3 py-1 text-[15px] font-semibold backdrop-blur ${
+          'bg-white/20'
+        }`}
+      >
+        {status}
+      </span>
       <div className="mt-4 grid w-full max-w-xs grid-cols-2 divide-x divide-white/15 rounded-2xl bg-white/10 py-2.5 ring-1 ring-white/15">
         {[
           ["You're owed", owed],
@@ -142,6 +152,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 sm:space-y-8">
+      <InstallBanner />
+
       <div>
         <p className="text-[15px] text-slate-500">Hey {name.split(' ')[0]},</p>
         <h1 className="text-[34px] font-semibold leading-tight text-ink sm:text-[44px]">Your balances</h1>
@@ -188,7 +200,7 @@ export default function Dashboard() {
               )}
             </section>
             {incoming.length > 0 && (
-              <section className="card flex-shrink-0 !p-5 ring-1 ring-amber-400/40">
+              <section className="card flex-shrink-0 !p-5 shadow-[0_14px_36px_-16px_rgb(255_159_10/0.55)] ring-1 ring-amber-400/50">
                 <div className="mb-4 flex items-center gap-2">
                   <span className="relative flex h-2.5 w-2.5">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60 motion-reduce:animate-none" />

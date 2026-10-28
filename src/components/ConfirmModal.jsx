@@ -28,7 +28,7 @@ export default function ConfirmModal({ open, onClose, title, body, confirmLabel 
           type="button"
           onClick={() => run()}
           disabled={busy}
-          className={danger ? 'btn-primary !from-rose-500 !to-rose-600 !shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_8px_20px_-8px_rgb(244_63_94/0.7)]' : 'btn-primary'}
+          className={danger ? 'btn-primary !bg-[#ff3b30] hover:!bg-[#ff453a]' : 'btn-primary'}
         >
           {busy ? 'Working…' : confirmLabel}
         </button>

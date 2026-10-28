@@ -4,138 +4,116 @@
 
 @layer base {
   :root {
-    /* Accent scale; Settings → Theme color overrides these on <html> */
-    --brand-50: 232 239 255;
-    --brand-100: 211 224 255;
-    --brand-200: 169 193 251;
-    --brand-300: 111 149 242;
-    --brand-400: 37 99 235;
-    --brand-500: 29 78 216;
-    --brand-600: 30 64 175;
-    --brand-700: 30 58 138;
-    --brand-800: 23 37 84;
-    --brand-900: 15 26 61;
-    --brand-950: 12 10 38;
-    --accent2-600: 79 70 229;
-    --accent2-700: 67 56 202;
-    --accent2-800: 55 48 163;
-    --accent2-950: 30 27 75;
+    /* iOS system blue (#007AFF / #0A84FF) as the accent scale */
+    --brand-50: 235 244 255;
+    --brand-100: 214 233 255;
+    --brand-200: 170 210 255;
+    --brand-300: 102 176 255;
+    --brand-400: 10 132 255;
+    --brand-500: 0 122 255;
+    --brand-600: 0 98 214;
+    --brand-700: 0 75 168;
+    --brand-800: 0 52 120;
+    --brand-900: 0 34 82;
+    --brand-950: 0 20 50;
+    /* iOS system indigo */
+    --accent2-600: 88 86 214;
+    --accent2-700: 72 70 190;
+    --accent2-800: 55 53 150;
+    --accent2-950: 30 29 80;
 
-    --ink: 15 23 42;
-    --ink-soft: 30 41 59;
+    /* iOS label colours */
+    --ink: 0 0 0;
+    --ink-soft: 28 28 30;
     --on-ink: 255 255 255;
-    --line: var(--brand-700);
-    /* Glass surfaces: color + translucency */
-    --surface: 239 246 255;
-    --surface-alpha: 0.55;
+    --line: 60 60 67;
+    /* iOS grouped surfaces: near-solid white on the grey system background */
+    --surface: 255 255 255;
+    --surface-alpha: 0.72;
     --card: 255 255 255;
-    --card-alpha: 0.55;
-    --elevated: 255 255 255;
-    --elevated-alpha: 0.8;
-    --border: var(--brand-700);
-    --border-alpha: 0.09;
-    --glass-edge: rgba(255, 255, 255, 0.75);
+    --card-alpha: 0.7;
+    --elevated: 118 118 128;
+    --elevated-alpha: 0.12;
+    --border: 60 60 67;
+    --border-alpha: 0.12;
+    --glass-edge: rgba(255, 255, 255, 0.7);
     --glass-highlight: 255 255 255 / 0.9;
-    --slate-200: 219 228 243;
-    --slate-400: 140 156 186;
-    --slate-500: 95 112 142;
-    --slate-600: 68 84 112;
-    --slate-700: 45 58 84;
-    --chart-grid: rgb(var(--brand-500) / 0.12);
+    /* iOS secondary / tertiary label greys */
+    --slate-200: 209 209 214;
+    --slate-400: 142 142 147;
+    --slate-500: 110 110 115;
+    --slate-600: 72 72 74;
+    --slate-700: 44 44 46;
+    --chart-grid: rgb(var(--line) / 0.1);
     --chart-accent: rgb(var(--brand-500));
-    --grid-line: rgb(var(--brand-700) / 0.07);
-    --bone: rgb(var(--brand-700) / 0.08);
+    --bone: rgb(var(--line) / 0.08);
     --shimmer: rgba(255, 255, 255, 0.65);
-    /* Soft blue halo hugging each glass container (lighter twin of dark mode's) */
     --card-shadow:
       inset 0 1px 0 rgb(var(--glass-highlight)),
-      0 0 0 1px rgb(var(--brand-400) / 0.06),
-      0 0 24px -4px rgb(var(--brand-400) / 0.2),
-      0 0 60px -12px rgb(var(--accent2-600) / 0.16);
-    --backdrop: linear-gradient(
-      160deg,
-      color-mix(in srgb, rgb(var(--brand-100)) 55%, white) 0%,
-      color-mix(in srgb, rgb(var(--brand-50)) 70%, white) 50%,
-      color-mix(in srgb, rgb(var(--brand-100)) 70%, white) 100%
-    );
+      0 1px 2px rgba(0, 0, 0, 0.04),
+      0 10px 30px -18px rgba(0, 40, 100, 0.18);
+    --wall: #f2f2f7;
+    /* One hue only, far behind everything, so the glass has something to frost */
+    --ambient: rgb(0 122 255 / 0.16);
+    --glow-blue: 0 18px 44px -16px rgb(0 122 255 / 0.55);
+    --glow-red: 0 18px 44px -16px rgb(255 59 48 / 0.55);
     color-scheme: light;
   }
 
   .dark {
-    --ink: 236 242 255;
-    --ink-soft: 203 213 235;
-    --on-ink: 11 15 28;
-    --line: var(--brand-200);
-    --surface: 255 255 255;
-    --surface-alpha: 0.03;
-    --card: 6 10 28;
-    --card-alpha: 0.55;
-    --elevated: var(--brand-800);
-    --elevated-alpha: 0.3;
+    --ink: 255 255 255;
+    --ink-soft: 235 235 245;
+    --on-ink: 0 0 0;
+    --line: 235 235 245;
+    --surface: 28 28 30;
+    --surface-alpha: 0.7;
+    --card: 28 28 30;
+    --card-alpha: 0.62;
+    --elevated: 118 118 128;
+    --elevated-alpha: 0.24;
     --border: 255 255 255;
-    --border-alpha: 0.08;
-    --glass-edge: rgb(var(--brand-300) / 0.14);
-    --glass-highlight: 255 255 255 / 0.05;
-    --slate-200: 51 65 95;
-    --slate-400: 105 120 152;
-    --slate-500: 140 155 186;
-    --slate-600: 166 180 208;
-    --slate-700: 200 210 230;
-    --chart-grid: rgb(var(--brand-200) / 0.07);
+    --border-alpha: 0.1;
+    --glass-edge: rgba(255, 255, 255, 0.1);
+    --glass-highlight: 255 255 255 / 0.09;
+    --slate-200: 58 58 60;
+    --slate-400: 142 142 147;
+    --slate-500: 152 152 159;
+    --slate-600: 199 199 204;
+    --slate-700: 229 229 234;
+    --chart-grid: rgb(var(--line) / 0.08);
     --chart-accent: rgb(var(--brand-400));
-    --grid-line: rgb(var(--brand-300) / 0.08);
-    --bone: rgb(var(--brand-300) / 0.08);
-    --shimmer: rgb(var(--brand-300) / 0.14);
-    /* Soft blue halo hugging each glass container */
+    --bone: rgb(var(--line) / 0.08);
+    --shimmer: rgba(255, 255, 255, 0.12);
     --card-shadow:
       inset 0 1px 0 rgb(var(--glass-highlight)),
-      0 0 0 1px rgb(var(--brand-400) / 0.05),
-      0 0 24px -4px rgb(var(--brand-400) / 0.28),
-      0 0 60px -12px rgb(var(--accent2-600) / 0.22);
-    --backdrop: linear-gradient(160deg, #010206 0%, #02040c 50%, #010105 100%);
+      0 12px 32px -16px rgba(0, 0, 0, 0.7);
+    --wall: #000000;
+    --ambient: rgb(10 132 255 / 0.22);
+    --glow-blue: 0 18px 50px -14px rgb(10 132 255 / 0.6);
+    --glow-red: 0 18px 50px -14px rgb(255 69 58 / 0.6);
     color-scheme: dark;
   }
 
   html {
-    background: rgb(var(--brand-50));
+    background: var(--wall);
     /* Always keep the scrollbar track so the page width (and the centered
        header) never shifts between short and long pages */
     overflow-y: scroll;
-  }
-
-  .dark {
-    background: #010206;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
     @apply text-ink font-sans antialiased;
     min-height: 100vh;
+    font-feature-settings: 'cv11', 'ss01';
   }
 
-  /* Fixed gradient backdrop the glass surfaces blur over */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    background: var(--backdrop);
-    pointer-events: none;
-  }
-
-  /* Fine grid: crisp on the open background, frosted away under glass */
-  body::after {
-    content: '';
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background-image:
-      linear-gradient(var(--grid-line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-    background-size: 44px 44px;
-    background-position: center top;
-    -webkit-mask-image: radial-gradient(ellipse 85% 75% at 50% 35%, #000 40%, transparent 100%);
-    mask-image: radial-gradient(ellipse 85% 75% at 50% 35%, #000 40%, transparent 100%);
+  /* Smooth light/dark switch (class added only while switching) */
+  html.theme-switching,
+  html.theme-switching *,
+  html.theme-switching *::before,
+  html.theme-switching *::after {
+    transition: background-color 0.45s ease, color 0.45s ease, border-color 0.45s ease, fill 0.45s ease !important;
   }
 
   h1,
@@ -145,7 +123,7 @@
   }
 
   h1 {
-    letter-spacing: -0.035em;
+    letter-spacing: -0.03em;
   }
 
   ::selection {
@@ -154,28 +132,35 @@
 }
 
 @layer components {
+  /* iOS material: translucent fill with background blur and a hairline
+     edge. Flat: no sheen, no rim light, no gradients. */
   .glass {
-    @apply bg-surface-card backdrop-blur-2xl backdrop-saturate-150;
-    border: 1px solid var(--glass-edge);
+    @apply bg-surface-card;
+    position: relative;
+    -webkit-backdrop-filter: blur(32px) saturate(190%);
+    backdrop-filter: blur(32px) saturate(190%);
+    border: 0.5px solid var(--glass-edge);
     box-shadow: var(--card-shadow);
   }
 
+  /* Filled iOS button */
   .btn-primary {
     @apply inline-flex items-center justify-center gap-1.5 px-5 py-2.5 text-white
-           bg-gradient-to-b from-brand-500 to-brand-600 hover:from-brand-400 hover:to-brand-600
-           text-[14px] font-medium tracking-[-0.01em] rounded-full transition-all duration-200
-           shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_8px_20px_-8px_rgb(var(--brand-500)/0.7)]
+           bg-brand-500 hover:bg-brand-400
+           text-[15px] font-semibold tracking-[-0.01em] rounded-full
+           shadow-[0_8px_20px_-10px_rgb(var(--brand-500)/0.75)]
+           transition-[transform,background-color,box-shadow,opacity] duration-300 ease-ios active:scale-[0.96] active:shadow-none
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2
-           disabled:opacity-40 disabled:cursor-not-allowed;
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100;
   }
 
+  /* Glass button */
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-1.5 px-5 py-2.5 bg-surface-card hover:bg-surface-elevated text-ink
-           text-[14px] font-medium tracking-[-0.01em] rounded-full backdrop-blur-xl transition-colors duration-200
-           shadow-[inset_0_1px_0_rgb(var(--glass-highlight))]
+    @apply inline-flex items-center justify-center gap-1.5 px-5 py-2.5 bg-[rgb(var(--line)/0.08)] hover:bg-[rgb(var(--line)/0.13)] text-ink
+           text-[15px] font-medium tracking-[-0.01em] rounded-full
+           transition-[transform,background-color,opacity] duration-300 ease-ios active:scale-[0.96]
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500
-           disabled:opacity-40 disabled:cursor-not-allowed;
-    border: 1px solid var(--glass-edge);
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100;
   }
 
   .input-field {
@@ -203,23 +188,14 @@
   }
 }
 
-/* Page transition: a quick fade only - nothing slides, so skeletons sit still */
-@keyframes page-enter {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+/* ---- Motion: iOS curve everywhere ---- */
+:root {
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @keyframes shimmer {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(100%);
-  }
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
 }
 
 /* Loading placeholder: a soft bone with a light sweep across it */
@@ -229,133 +205,81 @@
   background: var(--bone);
 }
 
-.skeleton::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, var(--shimmer), transparent);
-  animation: shimmer 1.4s ease-in-out infinite;
+.skeleton {
+  animation: pulse-bone 1.6s ease-in-out infinite;
 }
 
-@keyframes modal-in {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes modal-out {
-  to {
-    opacity: 0;
-    transform: translateY(8px) scale(0.98);
-  }
-}
-
-.modal-in {
-  animation: modal-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.modal-out {
-  animation: modal-out 0.18s ease-in both;
-}
-
-.modal-backdrop-in {
-  animation: fade-in 0.2s ease-out both;
-}
-
-.modal-backdrop-out {
-  animation: fade-in 0.18s ease-in reverse both;
+@keyframes pulse-bone {
+  50% { opacity: 0.5; }
 }
 
 @keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.page-enter {
-  animation: page-enter 0.2s ease-out both;
+/* Navigation: push slides in from the right, pop from the left, siblings
+   cross-fade. fill-mode "backwards" so no transform is left behind (a
+   leftover transform would trap position: fixed children). */
+@keyframes page-push {
+  from { opacity: 0; transform: translateX(36px); }
+}
+@keyframes page-pop {
+  from { opacity: 0; transform: translateX(-36px); }
+}
+@keyframes page-fade {
+  from { opacity: 0; transform: scale(0.985); }
+}
+.page-push { animation: page-push 0.5s var(--ease-ios) backwards; }
+.page-pop { animation: page-pop 0.5s var(--ease-ios) backwards; }
+.page-fade,
+.page-enter { animation: page-fade 0.4s var(--ease-ios) backwards; }
+
+/* Switching tabs inside a page */
+@keyframes tab-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+.tab-in { animation: tab-in 0.42s var(--ease-ios) backwards; }
+
+/* Dialogs: centred pop on wide screens, bottom sheet on phones */
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+}
+@keyframes modal-out {
+  to { opacity: 0; transform: translateY(10px) scale(0.97); }
+}
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+}
+@keyframes sheet-out {
+  to { transform: translateY(100%); }
+}
+.modal-in { animation: modal-in 0.45s var(--ease-ios) backwards; }
+.modal-out { animation: modal-out 0.22s ease-in both; }
+@media (max-width: 639px) {
+  .modal-in { animation: sheet-in 0.5s var(--ease-ios) backwards; }
+  .modal-out { animation: sheet-out 0.3s var(--ease-ios) both; }
+}
+.modal-backdrop-in { animation: fade-in 0.3s ease-out both; }
+.modal-backdrop-out { animation: fade-in 0.25s ease-in reverse both; }
+
+.fade-in { animation: fade-in 0.3s ease-out both; }
+.content-in { animation: fade-in 0.4s ease-out both; }
+
+/* Every interactive thing eases its colours and size */
+a, button, [role='tab'], [role='switch'], input, select {
+  transition-timing-function: var(--ease-ios);
 }
 
-.fade-in {
-  animation: fade-in 0.3s ease-out both;
+/* Toasts: iOS-style banners that drop in from the top */
+@keyframes banner-in {
+  from { opacity: 0; transform: translateY(-120%) scale(0.92); }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .page-enter,
-  .fade-in,
-  .modal-in,
-  .modal-out,
-  .modal-backdrop-in,
-  .modal-backdrop-out,
-  .skeleton::after {
-    animation: none;
-  }
+@keyframes banner-out {
+  to { opacity: 0; transform: translateY(-120%) scale(0.92); }
 }
-
-/* Brighter accent text on dark backgrounds */
-.dark .text-emerald-700,
-.dark .text-emerald-600,
-.dark .text-green-600 { color: #4ade80; }
-.dark .text-rose-600 { color: #fb7185; }
-.dark .text-indigo-600 { color: #a5b4fc; }
-.dark .text-brand-700,
-.dark .text-brand-600,
-.dark .text-blue-600 { color: rgb(var(--brand-300)); }
-.dark .text-red-600 { color: #f87171; }
-.dark .text-amber-600 { color: #fbbf24; }
-.dark .text-orange-600 { color: #fb923c; }
-.dark .text-sky-600 { color: #38bdf8; }
-.dark .text-indigo-600 { color: #a5b4fc; }
-.dark .text-violet-600 { color: #c4b5fd; }
-.dark .text-cyan-600 { color: #22d3ee; }
-.dark .text-pink-600 { color: #f472b6; }
-.dark .text-fuchsia-600 { color: #e879f9; }
-
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgb(var(--brand-400) / 0.18);
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--brand-400) / 0.3);
-}
-.dark ::-webkit-scrollbar-thumb {
-  background: rgb(var(--brand-300) / 0.15);
-}
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--brand-300) / 0.25);
-}
-
-/* Toasts rise from the bottom edge */
-@keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.toast-in {
-  animation: toast-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
+.toast-in { animation: banner-in 0.55s var(--ease-ios) both; }
+.toast-out { animation: banner-out 0.35s var(--ease-ios) both; }
 
 /* Room for the iPhone home indicator under fixed bottom UI */
 .safe-bottom {
@@ -363,8 +287,17 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .toast-in {
-    animation: none;
+  .toast-in,
+  .toast-out,
+  .page-push,
+  .page-pop,
+  .page-fade,
+  .page-enter,
+  .tab-in,
+  .modal-in,
+  .modal-out,
+  .skeleton {
+    animation: none !important;
   }
 }
 
@@ -381,11 +314,7 @@
   }
 }
 
-/* Soft fade where scrolled content meets the panel edge */
-.scroll-fade {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent);
-}
+
 
 /* Buttons and text on glowing (deep blue) cards */
 @layer components {
@@ -403,5 +332,61 @@
 }
 
 .text-glow {
-  text-shadow: 0 0 24px rgb(var(--brand-200) / 0.55), 0 0 2px rgb(255 255 255 / 0.35);
+  color: #ffffff;
+  text-shadow: 0 0 18px rgba(255, 255, 255, 0.45);
 }
+
+/* Red glow for numbers below zero */
+.text-glow-danger {
+  color: #ffffff;
+  text-shadow: 0 0 18px rgba(255, 255, 255, 0.45);
+}
+
+/* iOS dark-mode system colours for accent text */
+.dark .text-emerald-700,
+.dark .text-emerald-600,
+.dark .text-green-600 { color: #30d158; }
+.dark .text-rose-600 { color: #ff6961; }
+.dark .text-red-600 { color: #ff453a; }
+.dark .text-amber-600 { color: #ffd60a; }
+.dark .text-orange-600 { color: #ff9f0a; }
+.dark .text-sky-600 { color: #64d2ff; }
+.dark .text-indigo-600 { color: #7d7aff; }
+.dark .text-violet-600 { color: #bf5af2; }
+.dark .text-cyan-600 { color: #5ac8fa; }
+.dark .text-pink-600 { color: #ff6482; }
+.dark .text-fuchsia-600 { color: #da8fff; }
+.dark .text-brand-700,
+.dark .text-brand-600,
+.dark .text-blue-600 { color: rgb(var(--brand-300)); }
+
+/* Thin overlay-style scrollbars */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgb(var(--line) / 0.18); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--line) / 0.3); }
+
+/* Ambient glow far behind the page: two soft pools of a single blue */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ambient span {
+  position: absolute;
+  width: 56vmax;
+  height: 56vmax;
+  border-radius: 9999px;
+  background: var(--ambient);
+  filter: blur(90px);
+}
+
+.ambient span:first-child { top: -24vmax; left: -16vmax; }
+.ambient span:last-child { bottom: -28vmax; right: -18vmax; }
+
+/* Glow, used only on significant surfaces */
+.glow-blue { box-shadow: var(--glow-blue); }
+.glow-red { box-shadow: var(--glow-red); }

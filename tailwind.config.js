@@ -49,14 +49,19 @@ export default {
           light: '#3b3e45',
         },
       },
+      // Apple's system font on Apple devices (SF Pro), Inter elsewhere
       fontFamily: {
-        sans: ['Geist', 'system-ui', 'sans-serif'],
-        display: ['Geist', 'system-ui', 'sans-serif'],
+        sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Text"', '"SF Pro Display"', 'Inter', 'system-ui', 'sans-serif'],
+        display: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Display"', 'Inter', 'system-ui', 'sans-serif'],
+      },
+      // The iOS spring-like curve used for every transition
+      transitionTimingFunction: {
+        ios: 'cubic-bezier(0.32, 0.72, 0, 1)',
       },
       boxShadow: {
-        glow: '0 1px 2px rgb(var(--brand-600) / 0.08), 0 24px 48px -20px rgb(var(--brand-500) / 0.5)',
+        glow: '0 1px 2px rgba(0, 0, 0, 0.04)',
         card: 'var(--card-shadow)',
-        pill: '0 8px 30px -14px rgb(var(--brand-600) / 0.25)',
+        pill: 'none',
       },
     },
   },

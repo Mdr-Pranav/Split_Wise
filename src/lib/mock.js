@@ -3,10 +3,11 @@
 // can be tried locally before deploying.
 
 import { bucketDebts, fromCents, toCents } from './money';
+import { isValidUpi } from './upi';
 
 // Bumped when the sample data's shape changes, so old demo data is replaced
-const KEY = 'splitwise-demo-v4';
-const SESSION_KEY = 'splitwise-demo-session';
+const KEY = 'splitzy-demo-v5';
+const SESSION_KEY = 'splitzy-demo-session';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 const uid = () => crypto.randomUUID();
@@ -21,6 +22,8 @@ function seed() {
     display_name: n[0].toUpperCase() + n.slice(1),
     email: `${n}@demo.app`,
     password: 'demo',
+    // Everyone but Pranav has a UPI ID, so his Settings shows the prompt
+    upi_id: n === 'pranav' ? null : `${n}@okaxis`,
     created_at: daysAgo(30),
   }));
   const goa = { id: uid(), name: 'Goa Trip', owner_id: me.id, currency: 'INR', nudge_after_days: 3, created_at: daysAgo(20) };
@@ -188,7 +191,7 @@ export const mockAuth = {
   },
   profile: async (id) => {
     const u = load().users.find((x) => x.id === id);
-    return u ? { id: u.id, display_name: u.display_name, email: u.email } : null;
+    return u ? { id: u.id, display_name: u.display_name, email: u.email, upi_id: u.upi_id ?? null } : null;
   },
   // Demo helpers
   users: () => load().users.map(({ id, display_name, email }) => ({ id, display_name, email })),
@@ -242,6 +245,7 @@ function balances(db, gid) {
         user_id,
         display_name: u.display_name,
         email: u.email,
+        upi_id: u.upi_id ?? null,
         is_member: isMember(db, gid, user_id),
         is_owner: g.owner_id === user_id,
         net,
@@ -684,5 +688,12 @@ export const mockApi = {
     if (userId !== me()) fail('Not allowed');
     if (!name?.trim()) fail('Name can’t be empty');
     userById(db, userId).display_name = name.trim().slice(0, 60);
+  }),
+
+  updateUpi: mutate((db, userId, upi) => {
+    if (userId !== me()) fail('Not allowed');
+    const value = upi.trim();
+    if (value && !isValidUpi(value)) fail('new row for relation "profiles" violates check constraint');
+    userById(db, userId).upi_id = value || null;
   }),
 };

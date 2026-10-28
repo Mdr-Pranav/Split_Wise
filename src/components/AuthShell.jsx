@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import Logo from './Logo';
+import { APP_NAME } from '../lib/brand';
 import ThemeToggle from './ThemeToggle';
 import DemoBar from './DemoBar';
 
@@ -16,7 +17,7 @@ export default function AuthShell({ title, subtitle, tagline, children }) {
         <div className="mb-8 text-center">
           <Link to="/" className="mb-10 inline-flex items-center gap-2">
             <Logo className="h-7 w-7" />
-            <span className="text-[18px] font-semibold tracking-[-0.03em] text-ink">Split Wise</span>
+            <span className="text-[18px] font-semibold tracking-[-0.03em] text-ink">{APP_NAME}</span>
           </Link>
           <h1 className="text-[38px] font-semibold leading-[1.02] text-ink sm:text-[48px]">
             <span className="block">{title}</span>
