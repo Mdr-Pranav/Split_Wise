@@ -11,13 +11,12 @@ export const isPhone = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgen
 
 // The query string every UPI app understands. pa stays unencoded (some apps
 // reject %40 for @); the rest is percent-encoded, never "+" for spaces.
-function upiQuery({ vpa, name, amount, note }) {
-  const parts = [
-    `pa=${vpa.trim()}`,
-    `pn=${encodeURIComponent(name.slice(0, 40))}`,
-    `am=${Number(amount).toFixed(2)}`,
-    'cu=INR',
-  ];
+// withAmount: false leaves the amount for the payer to type, which some
+// apps (often Google Pay) accept when they block a pre-filled link.
+function upiQuery({ vpa, name, amount, note, withAmount = true }) {
+  const parts = [`pa=${vpa.trim()}`, `pn=${encodeURIComponent(name.slice(0, 40))}`];
+  if (withAmount) parts.push(`am=${Number(amount).toFixed(2)}`);
+  parts.push('cu=INR');
   if (note) parts.push(`tn=${encodeURIComponent(note.slice(0, 50))}`);
   return parts.join('&');
 }

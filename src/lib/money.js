@@ -2,9 +2,11 @@
 
 export const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'AUD', 'CAD', 'JPY'];
 
+// toPrecision first so binary float noise (1.005 * 100 = 100.49999…) can't
+// round the wrong way
 export const toCents = (value) => {
   const n = Number(value);
-  return Number.isFinite(n) ? Math.round(n * 100) : NaN;
+  return Number.isFinite(n) ? Math.round(Number((n * 100).toPrecision(12))) : NaN;
 };
 
 export const fromCents = (cents) => cents / 100;
