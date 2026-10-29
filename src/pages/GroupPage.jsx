@@ -18,6 +18,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import ExpenseModal from '../components/ExpenseModal';
 import SettleModal from '../components/SettleModal';
 import GroupSettings from '../components/GroupSettings';
+import GroupDashboard from '../components/GroupDashboard';
 import Switch from '../components/Switch';
 import { GlowCard } from '../components/Glow';
 
@@ -70,13 +71,15 @@ function SettlementRow({ s, me, nameOf, currency, onClick }) {
   const from = s.from_user === me ? 'You' : nameOf(s.from_user);
   const to = s.to_user === me ? 'you' : nameOf(s.to_user);
   const [badgeBg, badgeIcon] = PAYMENT_BADGE[s.status];
+  // In a "settle everything" batch the net receiver confirms every row
+  const confirmer = s.confirm_by ?? s.to_user;
   const status =
     s.status === 'pending'
-      ? s.to_user === me
+      ? confirmer === me
         ? 'Waiting for you to confirm'
-        : `Waiting for ${s.to_user === me ? 'you' : nameOf(s.to_user)} to confirm`
+        : `Waiting for ${nameOf(confirmer)} to confirm`
       : s.status === 'rejected'
-        ? `Declined by ${s.to_user === me ? 'you' : nameOf(s.to_user)}`
+        ? `Declined by ${confirmer === me ? 'you' : nameOf(confirmer)}`
         : null;
   return (
     <button type="button" onClick={onClick} className={`flex w-full items-center gap-3 rounded-2xl px-2 py-3 text-left transition-colors hover:bg-surface-elevated/70 sm:gap-4 sm:px-3 ${s.status === 'rejected' ? 'opacity-60' : ''}`}>
@@ -105,6 +108,26 @@ function SettlementRow({ s, me, nameOf, currency, onClick }) {
         {formatMoney(Number(s.amount), currency)}
       </span>
     </button>
+  );
+}
+
+// A finished smart settle in the activity feed: one entry for the whole thing
+function SmartRow({ plan, me, nameOf, currency }) {
+  const ts = plan.smart_transfers || [];
+  const date = (plan.finished_at || plan.created_at).slice(0, 10);
+  return (
+    <div className="flex w-full items-start gap-3 rounded-2xl px-2 py-3 sm:gap-4 sm:px-3">
+      <DateBadge ymd={date} />
+      <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-brand-500 text-white">
+        <Icon name="sparkle" className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-medium text-ink">Smart settle · everyone cleared</span>
+        <span className="block text-[13px] text-slate-500">
+          {ts.map((t) => `${t.from_user === me ? 'You' : nameOf(t.from_user)} → ${t.to_user === me ? 'you' : nameOf(t.to_user)} ${formatMoney(Number(t.amount), currency)}`).join(' · ')}
+        </span>
+      </span>
+    </div>
   );
 }
 
@@ -187,8 +210,22 @@ function DebtCard({ pair, me, nameOf, currency, pending, canSettle, onClear, onC
 
 // Right-hand panel: what the viewer owes / is owed, every debt in the group,
 // or spending per bucket (tapping a bucket filters the activity feed)
-function BalancesPanel({ view, onView, pairs, expenses, me, nameOf, currency, pending, isOwner, onClear, onClearAll, onPickBucket, nudgeFor, onNudge }) {
+function BalancesPanel({ view, onView, pairs, expenses, me, nameOf, currency, pending, isOwner, onClear, onClearAll, onPickBucket, nudgeFor, onNudge, onSettleAll, paused }) {
   const mine = pairs.filter((p) => p.debtor === me || p.creditor === me);
+  // People the viewer owes AND who owe the viewer: offer to net it all out
+  const twoWay = useMemo(() => {
+    const byPerson = new Map();
+    for (const p of mine) {
+      const other = p.debtor === me ? p.creditor : p.debtor;
+      const row = byPerson.get(other) || { other, owe: 0, owed: 0 };
+      // Only what's still payable (not already waiting for confirmation)
+      const payable = p.buckets.reduce((a, b) => a + Math.max(0, b.cents - (pending.get(pendingKey(p.debtor, p.creditor, b.bucket)) || 0)), 0);
+      if (p.debtor === me) row.owe += payable;
+      else row.owed += payable;
+      byPerson.set(other, row);
+    }
+    return [...byPerson.values()].filter((r) => r.owe > 0 && r.owed > 0);
+  }, [mine, me, pending]);
   const owe = mine.filter((p) => p.debtor === me).reduce((a, p) => a + p.cents, 0);
   const owed = mine.filter((p) => p.creditor === me).reduce((a, p) => a + p.cents, 0);
 
@@ -266,6 +303,30 @@ function BalancesPanel({ view, onView, pairs, expenses, me, nameOf, currency, pe
                 ))}
               </div>
             </GlowCard>
+            {twoWay.length > 0 && !paused && (
+              <ul className="mb-3 space-y-2">
+                {twoWay.map((r) => {
+                  const net = r.owe - r.owed;
+                  return (
+                    <li key={r.other} className="flex items-center gap-2.5 rounded-2xl bg-brand-500/[0.07] px-3 py-2.5 ring-1 ring-brand-500/20">
+                      <Avatar id={r.other} name={nameOf(r.other)} size="sm" className="!ring-0" />
+                      <span className="min-w-0 flex-1 text-[13px] leading-snug text-slate-600">
+                        <span className="block truncate font-semibold text-ink">Net with {nameOf(r.other)}</span>
+                        {net > 0
+                          ? `you pay ${formatMoney(fromCents(net), currency)}`
+                          : net < 0
+                            ? `${nameOf(r.other)} pays you ${formatMoney(fromCents(-net), currency)}`
+                            : 'you’re even'}
+                        {' · clears every bucket'}
+                      </span>
+                      <button type="button" onClick={() => onSettleAll(r.other)} className="btn-primary h-8 flex-shrink-0 !px-3 !text-[12px]">
+                        Settle everything
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
             {mine.length ? list(mine) : empty("You're square with everyone here.")}
           </>
         )}
@@ -341,9 +402,10 @@ export default function GroupPage() {
   const [invites, setInvites] = useState([]);
   const [requests, setRequests] = useState([]);
   const [nudgeInfo, setNudgeInfo] = useState([]);
+  const [plans, setPlans] = useState([]);
   const [params, setParams] = useSearchParams();
-  // activity | balances (phone-only split of the overview) | settings
-  const [tab, setTab] = useState(params.get('tab') === 'settings' ? 'settings' : 'activity');
+  // dashboard | activity | balances (phone-only split of the overview) | settings
+  const [tab, setTab] = useState(['activity', 'settings'].includes(params.get('tab')) ? params.get('tab') : 'dashboard');
   const [filter, setFilter] = useState(null);
   const [query, setQuery] = useState('');
   const [mineOnly, setMineOnly] = useState(false);
@@ -358,15 +420,17 @@ export default function GroupPage() {
       const g = await api.group(id);
       if (!g) return setGroup(null);
       const owner = g.owner_id === me;
-      const [b, e, s, inv, req, nudges] = await Promise.all([
+      const [b, e, s, inv, req, nudges, sp] = await Promise.all([
         api.balances(id),
         api.expenses(id),
         api.settlements(id),
         owner ? api.invites(id) : [],
         owner ? api.pendingRequests() : [],
         api.nudgeInfo(id),
+        api.smartPlans(id),
       ]);
       setNudgeInfo(nudges);
+      setPlans(sp);
       rememberLooks([
         [g.id, g.avatar_emoji, g.avatar_color],
         ...b.map((p) => [p.user_id, p.avatar_emoji, p.avatar_color]),
@@ -391,7 +455,7 @@ export default function GroupPage() {
   // Someone confirmed or declined from the bell
   usePaymentsChanged(load);
 
-  // Arriving from a reminder in the bell: open Settle up to pay that person
+  // Arriving from a reminder in the bell: open Settle to pay that person
   const settleWith = params.get('settle');
   useEffect(() => {
     if (!settleWith || !group) return;
@@ -412,9 +476,20 @@ export default function GroupPage() {
   const buckets = useMemo(() => bucketsForGroup(expenses), [expenses]);
   const usedBuckets = useMemo(() => [...new Set(expenses.map((e) => e.bucket))], [expenses]);
 
-  // Expenses and payments together, newest first, bucketed by month
-  // Expenses and payments together, newest first, bucketed by month, after
-  // the bucket / search / "only mine" filters
+  // Expenses, payments and finished smart settles together, newest first
+  const allActivity = useMemo(
+    () =>
+      [
+        ...expenses.map((e) => ({ kind: 'expense', date: e.expense_date, at: e.created_at, item: e })),
+        ...settlements.filter((st) => !st.plan_id).map((st) => ({ kind: 'settlement', date: st.settled_on, at: st.created_at, item: st })),
+        ...plans
+          .filter((pl) => pl.status === 'done')
+          .map((pl) => ({ kind: 'smart', date: (pl.finished_at || pl.created_at).slice(0, 10), at: pl.finished_at || pl.created_at, item: pl })),
+      ].sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at)),
+    [expenses, settlements, plans]
+  );
+
+  // The same feed bucketed by month, after the bucket / search / "only mine" filters
   const activity = useMemo(() => {
     const q = query.trim().toLowerCase();
     const matches = (it) => {
@@ -422,19 +497,20 @@ export default function GroupPage() {
       const fields =
         it.kind === 'expense'
           ? [x.bucket, x.note, nameOf(x.paid_by), String(x.amount)]
-          : [x.bucket, x.note, nameOf(x.from_user), nameOf(x.to_user), String(x.amount)];
+          : it.kind === 'smart'
+            ? ['smart settle', ...x.smart_transfers.flatMap((t) => [nameOf(t.from_user), nameOf(t.to_user), String(t.amount)])]
+            : [x.bucket, x.note, nameOf(x.from_user), nameOf(x.to_user), String(x.amount)];
       return fields.some((f) => f && f.toLowerCase().includes(q));
     };
     const involvesMe = (it) =>
       it.kind === 'expense'
         ? it.item.paid_by === me || it.item.expense_splits.some((sp) => sp.user_id === me)
-        : [it.item.from_user, it.item.to_user].includes(me);
-    const items = [
-      ...expenses.map((e) => ({ kind: 'expense', date: e.expense_date, at: e.created_at, item: e })),
-      ...settlements.map((st) => ({ kind: 'settlement', date: st.settled_on, at: st.created_at, item: st })),
-    ]
-      .filter((it) => (!filter || it.item.bucket === filter) && (!q || matches(it)) && (!mineOnly || involvesMe(it)))
-      .sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at));
+        : it.kind === 'smart'
+          ? it.item.smart_plan_members.some((m) => m.user_id === me)
+          : [it.item.from_user, it.item.to_user].includes(me);
+    const items = allActivity.filter(
+      (it) => (!filter || (it.kind !== 'smart' && it.item.bucket === filter)) && (!q || matches(it)) && (!mineOnly || involvesMe(it))
+    );
     const months = [];
     for (const it of items) {
       const key = it.date.slice(0, 7);
@@ -443,9 +519,11 @@ export default function GroupPage() {
       if (it.kind === 'expense') months.at(-1).spent += Number(it.item.amount);
     }
     return months;
-  }, [expenses, settlements, filter, query, mineOnly, me, nameOf]);
+  }, [allActivity, filter, query, mineOnly, me, nameOf]);
 
-  const activityCount = expenses.length + settlements.length;
+  const activityCount = allActivity.length;
+  const openPlan = plans.find((pl) => pl.status === 'approving' || pl.status === 'paying') || null;
+  const hasPendingPayments = settlements.some((st) => st.status === 'pending');
   const clearFilters = () => {
     setFilter(null);
     setQuery('');
@@ -528,10 +606,15 @@ export default function GroupPage() {
   // What tapping a payment in the activity feed offers depends on its state
   const openPayment = (p) => {
     const summary = `${nameOf(p.from_user)} → ${nameOf(p.to_user)}, ${formatMoney(Number(p.amount), cur)} for ${p.bucket}`;
-    if (p.status === 'pending' && p.to_user === me) {
+    if (p.status === 'pending' && (p.confirm_by ?? p.to_user) === me) {
+      // Part of a "settle everything" batch: the whole batch is confirmed together
+      const combined = Boolean(p.confirm_by) && settlements.some((x) => x.batch_id === p.batch_id && x.status === 'pending' && x.from_user === me);
+      const other = p.from_user === me ? p.to_user : p.from_user;
       return setConfirm({
-        title: `Did ${nameOf(p.from_user)} pay you?`,
-        body: `${summary}. Confirming clears it from what they owe you.`,
+        title: combined ? `Settle everything with ${nameOf(other)}?` : `Did ${nameOf(p.from_user)} pay you?`,
+        body: combined
+          ? `${nameOf(other)} settled every bucket between you, net. Confirm once you’ve received the difference; every bucket clears.`
+          : `${summary}. Confirming clears it from what they owe you.`,
         label: 'Confirm',
         action: run(() => api.respondPayment(p.batch_id, true), 'Payment confirmed'),
         secondaryLabel: 'Decline',
@@ -564,8 +647,26 @@ export default function GroupPage() {
         action: run(() => api.deleteSettlement(p.id), 'Removed'),
       });
     }
-    toast.info(p.status === 'pending' ? `Waiting for ${nameOf(p.to_user)} to confirm` : `Only ${nameOf(p.to_user)} or the owner can change this`);
+    toast.info(p.status === 'pending' ? `Waiting for ${nameOf(p.confirm_by ?? p.to_user)} to confirm` : `Only ${nameOf(p.to_user)} or the owner can change this`);
   };
+  const activityRow = (it) =>
+    it.kind === 'expense' ? (
+      <ExpenseRow key={it.item.id} expense={it.item} me={me} nameOf={nameOf} currency={cur} onClick={() => setExpenseModal({ open: true, expense: it.item })} />
+    ) : it.kind === 'smart' ? (
+      <SmartRow key={it.item.id} plan={it.item} me={me} nameOf={nameOf} currency={cur} />
+    ) : (
+      <SettlementRow key={it.item.id} s={it.item} me={me} nameOf={nameOf} currency={cur} onClick={() => openPayment(it.item)} />
+    );
+  const nudge = async (debtor) => {
+    try {
+      await api.sendNudge(group.id, debtor);
+      toast.success(`Nudged ${nameOf(debtor)}`);
+      load();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+  const overview = tab === 'activity' || tab === 'balances';
   const tabCls = (name) => (tab === name ? '' : 'hidden lg:block');
   // A small count bubble for join requests keeps the tab short on phones
   const settingsLabel = (
@@ -589,6 +690,15 @@ export default function GroupPage() {
           value={tab}
           onChange={setTab}
           options={[
+            {
+              value: 'dashboard',
+              label: (
+                <span className="inline-flex items-center justify-center" title="Dashboard">
+                  <Icon name="home" className="h-4 w-4" />
+                  <span className="sr-only">Dashboard</span>
+                </span>
+              ),
+            },
             { value: 'activity', label: 'Activity' },
             { value: 'balances', label: 'Balances' },
             { value: 'settings', label: settingsLabel },
@@ -597,10 +707,11 @@ export default function GroupPage() {
         <Segmented
           label="Group sections"
           className="hidden lg:inline-flex"
-          value={tab === 'settings' ? 'settings' : 'activity'}
+          value={tab === 'balances' ? 'activity' : tab}
           onChange={setTab}
           options={[
-            { value: 'activity', label: 'Overview' },
+            { value: 'dashboard', label: 'Dashboard' },
+            { value: 'activity', label: 'Activity' },
             { value: 'settings', label: settingsLabel },
           ]}
         />
@@ -624,11 +735,11 @@ export default function GroupPage() {
             onClick={() => setSettleModal({ open: true, preset: null })}
             disabled={members.length < 2}
             className="btn-secondary h-9 !px-2.5 sm:!px-3.5"
-            aria-label="Settle up"
-            title="Settle up"
+            aria-label="Settle"
+            title="Settle"
           >
             <Icon name="swap" className="h-4 w-4" />
-            <span className="hidden sm:inline">Settle up</span>
+            <span className="hidden sm:inline">Settle</span>
           </button>
           <button
             type="button"
@@ -643,6 +754,62 @@ export default function GroupPage() {
         </div>
       </div>
 
+
+      {openPlan && (
+        <button
+          type="button"
+          onClick={() => setSettleModal({ open: true, preset: { mode: 'smart' } })}
+          className="glass flex w-full items-center gap-3 rounded-[22px] px-4 py-3 text-left shadow-[0_14px_36px_-18px_rgb(var(--brand-500)/0.6)] ring-1 ring-brand-500/30 transition-transform duration-200 active:scale-[0.99]"
+        >
+          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-brand-500 text-white">
+            <Icon name="sparkle" className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[14px] font-semibold text-ink">Smart settle in progress</span>
+            <span className="block truncate text-[12px] text-slate-500">
+              {openPlan.status === 'approving'
+                ? `${openPlan.smart_plan_members.filter((m) => m.approved_at).length} of ${openPlan.smart_plan_members.length} approved${
+                    openPlan.smart_plan_members.some((m) => m.user_id === me && !m.approved_at) ? ' · waiting for you' : ''
+                  }`
+                : `${openPlan.smart_transfers.filter((t) => t.confirmed_at).length} of ${openPlan.smart_transfers.length} payments confirmed${
+                    openPlan.smart_transfers.some((t) => !t.confirmed_at && (t.from_user === me ? !t.paid_at : t.to_user === me)) ? ' · your turn' : ''
+                  }`}
+              {' · other payments are paused'}
+            </span>
+          </span>
+          <span className="btn-primary h-8 flex-shrink-0 !px-3 !text-[12px]">Open</span>
+        </button>
+      )}
+
+      {tab === 'dashboard' && (
+        <div className="tab-in">
+          <GroupDashboard
+            group={group}
+            members={members}
+            expenses={expenses}
+            settlements={settlements}
+            pairs={pairs}
+            me={me}
+            nameOf={nameOf}
+            recent={allActivity.slice(0, 5)}
+            renderActivity={activityRow}
+            onAddExpense={() => setExpenseModal({ open: true, expense: null })}
+            onSettle={() => setSettleModal({ open: true, preset: null })}
+            onPay={(to) => setSettleModal({ open: true, preset: { from: me, to } })}
+            onOpenPayment={openPayment}
+            nudgeFor={nudgeFor}
+            onNudge={nudge}
+            onPickBucket={(b) => {
+              setFilter(b);
+              setTab('activity');
+            }}
+            onTab={(t, view) => {
+              if (view) setBalanceView(view);
+              setTab(t);
+            }}
+          />
+        </div>
+      )}
 
       {tab === 'settings' && (
         <div className="tab-in">
@@ -664,8 +831,8 @@ export default function GroupPage() {
         </div>
       )}
 
-      <div className={`grid grid-cols-[minmax(0,1fr)] gap-3 sm:gap-4 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-5 ${tab === 'settings' ? 'hidden' : ''}`}>
-        <div key={`a-${tab === 'settings' ? 's' : 'o'}-${tab === 'activity'}`} className={`panel-h tab-in min-w-0 ${tabCls('activity')}`}>
+      <div className={`grid grid-cols-[minmax(0,1fr)] gap-3 sm:gap-4 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-5 ${overview ? '' : 'hidden'}`}>
+        <div key={`a-${overview ? 'o' : tab}-${tab === 'activity'}`} className={`panel-h tab-in min-w-0 ${tabCls('activity')}`}>
           <Section
             title="Activity"
             count={activityCount || null}
@@ -737,13 +904,7 @@ export default function GroupPage() {
                       {month.label}
                       <span className="normal-case tracking-normal">{formatMoney(month.spent, cur)} spent</span>
                     </p>
-                    {month.items.map((it) =>
-                      it.kind === 'expense' ? (
-                        <ExpenseRow key={it.item.id} expense={it.item} me={me} nameOf={nameOf} currency={cur} onClick={() => setExpenseModal({ open: true, expense: it.item })} />
-                      ) : (
-                        <SettlementRow key={it.item.id} s={it.item} me={me} nameOf={nameOf} currency={cur} onClick={() => openPayment(it.item)} />
-                      )
-                    )}
+                    {month.items.map(activityRow)}
                   </div>
                 ))}
               </div>
@@ -751,7 +912,7 @@ export default function GroupPage() {
           </Section>
         </div>
 
-        <div key={`b-${tab === 'settings' ? 's' : 'o'}-${tab === 'balances'}`} className={`panel-h tab-in min-w-0 ${tabCls('balances')}`}>
+        <div key={`b-${overview ? 'o' : tab}-${tab === 'balances'}`} className={`panel-h tab-in min-w-0 ${tabCls('balances')}`}>
           <BalancesPanel
             view={balanceView}
             onView={setBalanceView}
@@ -778,20 +939,14 @@ export default function GroupPage() {
                 ),
               });
             }}
+            paused={Boolean(openPlan)}
+            onSettleAll={(other) => setSettleModal({ open: true, preset: { from: me, to: other, bucket: '__net' } })}
             onPickBucket={(b) => {
               setFilter(b);
               setTab('activity');
             }}
             nudgeFor={nudgeFor}
-            onNudge={async (debtor) => {
-              try {
-                await api.sendNudge(group.id, debtor);
-                toast.success(`Nudged ${nameOf(debtor)}`);
-                load();
-              } catch (err) {
-                toast.error(err.message);
-              }
-            }}
+            onNudge={nudge}
           />
         </div>
       </div>
@@ -816,6 +971,8 @@ export default function GroupPage() {
         isOwner={isOwner}
         debts={debts}
         pending={pending}
+        plan={openPlan}
+        hasPending={hasPendingPayments}
         onSaved={done}
       />
       <ConfirmModal

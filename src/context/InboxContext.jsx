@@ -27,17 +27,20 @@ export function InboxProvider({ children }) {
   const userId = session?.user?.id;
   const [items, setItems] = useState([]);
   const [nudges, setNudges] = useState([]);
+  const [smart, setSmart] = useState([]);
 
   const refresh = useCallback(async () => {
     if (!userId) {
       setItems([]);
       setNudges([]);
+      setSmart([]);
       return;
     }
     try {
-      const [payments, reminders] = await Promise.all([api.pendingPayments(), api.myNudges()]);
+      const [payments, reminders, tasks] = await Promise.all([api.pendingPayments(), api.myNudges(), api.mySmartTasks()]);
       setItems(payments);
       setNudges(reminders);
+      setSmart(tasks);
       rememberLooks([...payments, ...reminders].map((x) => [x.from_user, x.from_emoji, x.from_color]));
     } catch {
       // keep the last list; the next poll will retry
@@ -58,7 +61,7 @@ export function InboxProvider({ children }) {
 
   usePaymentsChanged(refresh);
 
-  return <InboxContext.Provider value={{ items, nudges, refresh }}>{children}</InboxContext.Provider>;
+  return <InboxContext.Provider value={{ items, nudges, smart, refresh }}>{children}</InboxContext.Provider>;
 }
 
 export function useInbox() {

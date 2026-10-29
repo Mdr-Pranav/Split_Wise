@@ -78,6 +78,26 @@ const supabaseApi = {
       p_buckets: c.buckets ?? null,
       p_note: c.note || null,
     }),
+  // Clear every bucket between two people; only the net amount changes hands.
+  // Returns { count, status, net, payer, receiver }.
+  settlePair: (c) => rpc('settle_pair', { p_group_id: c.groupId, p_a: c.a, p_b: c.b, p_note: c.note || null }),
+  // Smart settle: plans (open and finished) with who approved and the transfers
+  smartPlans: (groupId) =>
+    query(
+      supabase
+        .from('smart_plans')
+        .select('*, smart_plan_members(user_id, approved_at), smart_transfers(id, from_user, to_user, amount, paid_at, confirmed_at)')
+        .eq('group_id', groupId)
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: false })
+    ),
+  startSmartSettle: (groupId) => rpc('start_smart_settle', { p_group_id: groupId }),
+  respondSmartPlan: (planId, approve) => rpc('respond_smart_plan', { p_plan_id: planId, p_approve: approve }),
+  markTransferPaid: (transferId) => rpc('mark_transfer_paid', { p_transfer_id: transferId }),
+  confirmTransfer: (transferId) => rpc('confirm_transfer', { p_transfer_id: transferId }),
+  cancelSmartPlan: (planId) => rpc('cancel_smart_plan', { p_plan_id: planId }),
+  mySmartTasks: () => rpc('my_smart_tasks'),
+
   // Payments other people sent the user, waiting for them to accept
   pendingPayments: () => rpc('my_pending_payments'),
   respondPayment: (batchId, accept) => rpc('respond_payment', { p_batch_id: batchId, p_accept: accept }),

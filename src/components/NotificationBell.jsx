@@ -13,7 +13,7 @@ import { useToast } from '../context/ToastContext';
 // Header bell: payments people say they made to the user (nothing clears
 // until the user confirms it here) and reminders from people they owe.
 export default function NotificationBell() {
-  const { items, nudges } = useInbox();
+  const { items, nudges, smart } = useInbox();
   const navigate = useNavigate();
   const toast = useToast();
   const { pathname } = useLocation();
@@ -82,13 +82,27 @@ export default function NotificationBell() {
     }
   };
 
-  // Opens the group with Settle up pre-filled for paying this person
+  // Opens the group with Settle pre-filled for paying this person
   const settle = (n) => {
     setOpen(false);
     navigate(`/groups/${n.group_id}?settle=${n.from_user}`);
   };
 
-  const count = items.length + nudges.length;
+  // Smart settle: approve a proposal, or confirm a transfer you received
+  const smartAct = async (task, fn, message) => {
+    setBusy(task.transfer_id || task.plan_id);
+    try {
+      const r = await fn();
+      toast.success(typeof message === 'function' ? message(r) : message);
+      notifyPaymentsChanged();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const count = items.length + nudges.length + smart.length;
 
   return (
     <>
@@ -140,6 +154,68 @@ export default function NotificationBell() {
               </div>
             ) : (
               <div className="overflow-y-auto overscroll-contain">
+              {smart.length > 0 && <SectionLabel>Smart settle</SectionLabel>}
+              <ul className="divide-y divide-surface-border">
+                {smart.map((t) => {
+                  const amount = Number(t.amount);
+                  const key = t.transfer_id || t.plan_id;
+                  return (
+                    <li key={`${t.kind}-${key}`} className="px-5 py-4">
+                      <div className="flex items-start gap-3">
+                        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-brand-500 text-white">
+                          <Icon name="sparkle" className="h-5 w-5" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[14px] leading-snug text-slate-600">
+                            {t.kind === 'approve' ? (
+                              <>
+                                <span className="font-semibold text-ink">{t.other_name}</span> proposed a smart settle
+                              </>
+                            ) : (
+                              <>
+                                <span className="font-semibold text-ink">{t.other_name}</span> paid you their smart settle share
+                              </>
+                            )}
+                          </p>
+                          <p className="text-[18px] font-semibold tracking-[-0.02em] text-ink">
+                            {t.kind === 'approve'
+                              ? amount > 0
+                                ? `You receive ${formatMoney(amount, t.currency)}`
+                                : amount < 0
+                                  ? `You pay ${formatMoney(-amount, t.currency)}`
+                                  : 'Nothing for you to pay'
+                              : formatMoney(amount, t.currency)}
+                          </p>
+                          <p className="truncate text-[12px] text-slate-500">
+                            <Link to={`/groups/${t.group_id}`} className="font-medium hover:text-ink">{t.group_name}</Link> · {timeAgo(t.created_at)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        {t.kind === 'approve' ? (
+                          <>
+                            <button type="button" disabled={busy === key} onClick={() => smartAct(t, () => api.respondSmartPlan(t.plan_id, false), 'Smart settle declined')} className="btn-secondary flex-1 !py-2">
+                              Decline
+                            </button>
+                            <button type="button" disabled={busy === key} onClick={() => smartAct(t, () => api.respondSmartPlan(t.plan_id, true), 'Approved')} className="btn-primary flex-1 !py-2">
+                              <Icon name="check" className="h-4 w-4" strokeWidth={2.4} /> Approve
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={busy === key}
+                            onClick={() => smartAct(t, () => api.confirmTransfer(t.transfer_id), (r) => (r === 'done' ? 'Smart settle complete · every bucket cleared' : 'Payment confirmed'))}
+                            className="btn-primary flex-1 !py-2"
+                          >
+                            <Icon name="check" className="h-4 w-4" strokeWidth={2.4} /> Confirm received
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
               {items.length > 0 && <SectionLabel>Payments to confirm</SectionLabel>}
               <ul className="divide-y divide-surface-border">
                 {items.map((item) => (
@@ -148,7 +224,8 @@ export default function NotificationBell() {
                       <Avatar id={item.from_user} name={item.from_name} />
                       <div className="min-w-0 flex-1">
                         <p className="text-[14px] leading-snug text-slate-600">
-                          <span className="font-semibold text-ink">{item.from_name}</span> says they paid you
+                          <span className="font-semibold text-ink">{item.from_name}</span>{' '}
+                          {item.buckets.some((b) => Number(b.amount) < 0) ? 'settled everything with you, net' : 'says they paid you'}
                         </p>
                         <p className="text-[22px] font-semibold tracking-[-0.02em] text-ink">{formatMoney(Number(item.total), item.currency)}</p>
                         <p className="truncate text-[12px] text-slate-500">
@@ -161,7 +238,8 @@ export default function NotificationBell() {
                       {item.buckets.map((b) => (
                         <li key={b.bucket} className="inline-flex items-center gap-1.5 rounded-full bg-surface-elevated/70 py-0.5 pl-0.5 pr-2.5 text-[12px] font-medium text-ink">
                           <BucketIcon name={b.bucket} size="sm" className="!h-6 !w-6 !rounded-full" />
-                          {b.bucket} · {formatMoney(Number(b.amount), item.currency)}
+                          {b.bucket} · {Number(b.amount) < 0 ? '−' : ''}
+                          {formatMoney(Math.abs(Number(b.amount)), item.currency)}
                         </li>
                       ))}
                     </ul>
@@ -202,7 +280,7 @@ export default function NotificationBell() {
                         Dismiss
                       </button>
                       <button type="button" onClick={() => settle(n)} className="btn-primary flex-1 !py-2">
-                        <Icon name="swap" className="h-4 w-4" /> Settle up
+                        <Icon name="swap" className="h-4 w-4" /> Settle
                       </button>
                     </div>
                   </li>

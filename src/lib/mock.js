@@ -2,11 +2,11 @@
 // in supabase/schema.sql against data kept in localStorage, so every screen
 // can be tried locally before deploying.
 
-import { bucketDebts, fromCents, toCents } from './money';
+import { bucketDebts, fromCents, smartTransfers, toCents } from './money';
 import { isValidUpi } from './upi';
 
 // Bumped when the sample data's shape changes, so old demo data is replaced
-const KEY = 'splitzy-demo-v8';
+const KEY = 'splitzy-demo-v10';
 const SESSION_KEY = 'splitzy-demo-session';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -75,6 +75,7 @@ function seed() {
     invites: [
       { id: uid(), group_id: goa.id, code: 'GOA7K2MX', created_by: me.id, expires_at: new Date(Date.now() + 20 * 3600000).toISOString(), used_by: null, used_at: null, revoked: false, created_at: daysAgo(0) },
     ],
+    smartPlans: [],
     requests: [{ id: uid(), group_id: goa.id, user_id: neha.id, status: 'pending', created_at: daysAgo(1), decided_at: null }],
     // Rahul reminding Pranav about the bills (shows in Pranav's bell)
     nudges: [
@@ -293,7 +294,10 @@ function checkPaymentRights(db, gid, from, to) {
   if (![from, to].includes(u) && !isOwner(db, gid, u)) fail('Only the people involved or the owner can record this payment');
   if (from === to) fail('Pick two different people');
   if (!isMember(db, gid, from) || !isMember(db, gid, to)) fail('Both people must be in the group');
+  if (openPlan(db, gid)) fail('A smart settle is in progress in this group. Finish or cancel it first.');
 }
+
+const openPlan = (db, gid) => (db.smartPlans || []).find((p) => p.group_id === gid && (p.status === 'approving' || p.status === 'paying'));
 
 // What `from` can still pay `to` in a bucket after pending payments
 function payable(db, gid, from, to, bucket) {
@@ -310,8 +314,8 @@ const hasPending = (db, gid, from, to, bucket) =>
   );
 
 // Accepted straight away only when the person being paid records it
-function addPayment(db, gid, from, to, bucket, amount, note, date, batch = uid()) {
-  const status = me() === to ? 'confirmed' : 'pending';
+function addPayment(db, gid, from, to, bucket, amount, note, date, batch = uid(), opts = {}) {
+  const status = opts.status ?? (me() === to ? 'confirmed' : 'pending');
   const row = {
     id: uid(),
     group_id: gid,
@@ -323,6 +327,7 @@ function addPayment(db, gid, from, to, bucket, amount, note, date, batch = uid()
     settled_on: date || dateOnly(now()),
     status,
     batch_id: batch,
+    confirm_by: opts.confirmBy ?? null,
     decided_at: status === 'confirmed' ? now() : null,
     created_by: me(),
     created_at: now(),
@@ -399,6 +404,7 @@ export const mockApi = {
     db.invites = drop(db.invites);
     db.requests = drop(db.requests);
     db.nudges = drop(db.nudges);
+    db.smartPlans = drop(db.smartPlans || []);
     db.expenses = drop(db.expenses);
     db.settlements = drop(db.settlements);
   }),
@@ -421,6 +427,8 @@ export const mockApi = {
     if (db.settlements.some((s) => s.group_id === gid && s.status === 'pending' && [s.from_user, s.to_user].includes(userId))) {
       fail('They have payments waiting to be confirmed');
     }
+    const plan = openPlan(db, gid);
+    if (plan?.smart_plan_members.some((m) => m.user_id === userId)) fail('They’re part of a smart settle in progress');
     db.members = db.members.filter((m) => !(m.group_id === gid && m.user_id === userId));
   }),
 
@@ -514,37 +522,168 @@ export const mockApi = {
     return { count: rows.length, status: rows[0].status };
   }),
 
+  smartPlans: read((db, gid) =>
+    isMember(db, gid, me())
+      ? (db.smartPlans || []).filter((p) => p.group_id === gid && p.status !== 'cancelled').sort((a, b) => b.created_at.localeCompare(a.created_at))
+      : []
+  ),
+
+  startSmartSettle: mutate((db, gid) => {
+    const u = me();
+    if (!isMember(db, gid, u)) fail('Group not found');
+    if (openPlan(db, gid)) fail('A smart settle is already in progress');
+    if (db.settlements.some((s) => s.group_id === gid && s.status === 'pending')) {
+      fail('Some payments are still waiting to be confirmed. Confirm or decline them first.');
+    }
+    const debts = debtsIn(db, gid);
+    if (!debts.length) fail('Everyone is already settled');
+    db.smartPlans = db.smartPlans || [];
+    const id = uid();
+    const people = [...new Set(debts.flatMap((d) => [d.debtor, d.creditor]))];
+    const plan = {
+      id,
+      group_id: gid,
+      created_by: u,
+      status: 'approving',
+      created_at: now(),
+      finished_at: null,
+      items: debts.map((d) => ({ debtor: d.debtor, creditor: d.creditor, bucket: d.bucket, amount: fromCents(d.cents) })),
+      smart_plan_members: people.map((p) => ({ user_id: p, approved_at: p === u ? now() : null })),
+      smart_transfers: smartTransfers(debts).map((t) => ({
+        id: uid(),
+        from_user: t.from,
+        to_user: t.to,
+        amount: fromCents(t.cents),
+        paid_at: null,
+        confirmed_at: null,
+      })),
+    };
+    if (plan.smart_plan_members.every((m) => m.approved_at)) plan.status = 'paying';
+    db.smartPlans.push(plan);
+    return id;
+  }),
+
+  respondSmartPlan: mutate((db, planId, approve) => {
+    const u = me();
+    const plan = (db.smartPlans || []).find((p) => p.id === planId && p.status === 'approving');
+    const m = plan?.smart_plan_members.find((x) => x.user_id === u);
+    if (!m) fail('Nothing to approve here');
+    if (!approve) {
+      plan.status = 'cancelled';
+      plan.finished_at = now();
+      return;
+    }
+    m.approved_at = m.approved_at || now();
+    if (plan.smart_plan_members.every((x) => x.approved_at)) plan.status = 'paying';
+  }),
+
+  markTransferPaid: mutate((db, transferId) => {
+    const u = me();
+    const plan = (db.smartPlans || []).find((p) => p.status === 'paying' && p.smart_transfers.some((t) => t.id === transferId));
+    const t = plan?.smart_transfers.find((x) => x.id === transferId);
+    if (!t || t.from_user !== u) fail('Only the payer can mark this as paid');
+    t.paid_at = t.paid_at || now();
+  }),
+
+  confirmTransfer: mutate((db, transferId) => {
+    const u = me();
+    const plan = (db.smartPlans || []).find((p) => p.status === 'paying' && p.smart_transfers.some((t) => t.id === transferId));
+    const t = plan?.smart_transfers.find((x) => x.id === transferId);
+    if (!t || t.to_user !== u || t.confirmed_at) fail('Only the person receiving it can confirm this');
+    t.confirmed_at = now();
+    t.paid_at = t.paid_at || t.confirmed_at;
+    if (plan.smart_transfers.some((x) => !x.confirmed_at)) return 'paying';
+    for (const i of plan.items) {
+      addPayment(db, plan.group_id, i.debtor, i.creditor, i.bucket, i.amount, 'Smart settle', null, plan.id, { status: 'confirmed' });
+      db.settlements.at(-1).plan_id = plan.id;
+    }
+    plan.status = 'done';
+    plan.finished_at = now();
+    return 'done';
+  }),
+
+  cancelSmartPlan: mutate((db, planId) => {
+    const u = me();
+    const plan = (db.smartPlans || []).find((p) => p.id === planId && (p.status === 'approving' || p.status === 'paying'));
+    if (!plan || !isMember(db, plan.group_id, u)) fail('Smart settle not found');
+    if (u !== plan.created_by && !isOwner(db, plan.group_id, u)) fail('Only whoever proposed it or the owner can cancel it');
+    if (plan.smart_transfers.some((t) => t.confirmed_at)) fail('Some payments are already confirmed, so it can only be finished now');
+    plan.status = 'cancelled';
+    plan.finished_at = now();
+  }),
+
+  mySmartTasks: read((db) => {
+    const u = me();
+    const tasks = [];
+    for (const p of db.smartPlans || []) {
+      if (!isMember(db, p.group_id, u)) continue;
+      const g = db.groups.find((x) => x.id === p.group_id);
+      if (p.status === 'approving' && p.smart_plan_members.some((m) => m.user_id === u && !m.approved_at)) {
+        const amount = p.smart_transfers.reduce((a, t) => a + (t.to_user === u ? t.amount : t.from_user === u ? -t.amount : 0), 0);
+        tasks.push({ kind: 'approve', plan_id: p.id, transfer_id: null, group_id: g.id, group_name: g.name, currency: g.currency, other_user: p.created_by, other_name: userById(db, p.created_by).display_name, amount: round2(amount), created_at: p.created_at });
+      }
+      if (p.status === 'paying') {
+        for (const t of p.smart_transfers) {
+          if (t.to_user === u && !t.confirmed_at) {
+            tasks.push({ kind: 'confirm', plan_id: p.id, transfer_id: t.id, group_id: g.id, group_name: g.name, currency: g.currency, other_user: t.from_user, other_name: userById(db, t.from_user).display_name, amount: t.amount, created_at: t.paid_at || p.created_at });
+          }
+        }
+      }
+    }
+    return tasks.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }),
+
   pendingPayments: read((db) => {
     const u = me();
     const batches = new Map();
     for (const s of db.settlements) {
-      if (s.to_user !== u || s.status !== 'pending' || !isMember(db, s.group_id, u)) continue;
+      if ((s.confirm_by ?? s.to_user) !== u || s.status !== 'pending' || !isMember(db, s.group_id, u)) continue;
       const g = db.groups.find((x) => x.id === s.group_id);
+      const other = userById(db, s.from_user === u ? s.to_user : s.from_user);
+      const signed = s.to_user === u ? s.amount : -s.amount;
       const b = batches.get(s.batch_id) || {
         batch_id: s.batch_id,
         group_id: g.id,
         group_name: g.name,
         currency: g.currency,
-        from_user: s.from_user,
-        from_name: userById(db, s.from_user).display_name,
-        from_emoji: userById(db, s.from_user).avatar_emoji ?? null,
-        from_color: userById(db, s.from_user).avatar_color ?? null,
+        from_user: other.id,
+        from_name: other.display_name,
+        from_emoji: other.avatar_emoji ?? null,
+        from_color: other.avatar_color ?? null,
         total: 0,
         buckets: [],
         note: s.note,
         created_at: s.created_at,
       };
-      b.total = round2(b.total + s.amount);
-      b.buckets.push({ bucket: s.bucket, amount: s.amount });
+      b.total = round2(b.total + signed);
+      b.buckets.push({ bucket: s.bucket, amount: signed });
       batches.set(s.batch_id, b);
     }
     return [...batches.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
   }),
 
+  settlePair: mutate((db, c) => {
+    checkPaymentRights(db, c.groupId, c.a, c.b);
+    const rows = debtsIn(db, c.groupId)
+      .filter((d) => (d.debtor === c.a && d.creditor === c.b) || (d.debtor === c.b && d.creditor === c.a))
+      .map((d) => ({ ...d, payable: payable(db, c.groupId, d.debtor, d.creditor, d.bucket) }))
+      .filter((d) => d.payable > 0);
+    if (!rows.length) {
+      const waiting = hasPending(db, c.groupId, c.a, c.b) || hasPending(db, c.groupId, c.b, c.a);
+      fail(waiting ? 'Already waiting for confirmation' : 'Nothing to settle between these two');
+    }
+    const net = rows.reduce((t, d) => t + (d.debtor === c.a ? d.payable : -d.payable), 0);
+    const receiver = net >= 0 ? c.b : c.a;
+    const status = net === 0 || me() === receiver ? 'confirmed' : 'pending';
+    const batch = uid();
+    rows.forEach((d) => addPayment(db, c.groupId, d.debtor, d.creditor, d.bucket, fromCents(d.payable), c.note, null, batch, { status, confirmBy: receiver }));
+    return { count: rows.length, status, net: fromCents(Math.abs(net)), payer: net >= 0 ? c.a : c.b, receiver };
+  }),
+
   respondPayment: mutate((db, batchId, accept) => {
     const u = me();
     const rows = db.settlements.filter((s) => s.batch_id === batchId && s.status === 'pending');
-    if (!rows.length || rows.some((s) => s.to_user !== u)) fail('Only the person being paid can confirm this');
+    if (!rows.length || rows.some((s) => (s.confirm_by ?? s.to_user) !== u)) fail('Only the person being paid can confirm this');
     if (accept) {
       for (const s of rows) {
         const due = debtsIn(db, s.group_id).find((d) => d.bucket === s.bucket && d.debtor === s.from_user && d.creditor === s.to_user);
@@ -629,7 +768,13 @@ export const mockApi = {
     const u = me();
     const s = db.settlements.find((x) => x.id === id);
     if (!s || !isMember(db, s.group_id, u)) fail('Payment not found');
-    if (s.status === 'pending' && ![s.from_user, s.created_by].includes(u)) fail('Only the person who sent it can withdraw it');
+    if (s.plan_id) fail('This is part of a smart settle and can’t be removed on its own');
+    if (s.status === 'pending') {
+      if (![s.from_user, s.created_by].includes(u)) fail('Only the person who sent it can withdraw it');
+      // A batch is withdrawn as a whole
+      db.settlements = db.settlements.filter((x) => !(x.batch_id === s.batch_id && x.status === 'pending'));
+      return;
+    }
     if (s.status === 'confirmed' && u !== s.to_user && !isOwner(db, s.group_id, u)) {
       fail(`Only ${userById(db, s.to_user).display_name} or the owner can undo a confirmed payment`);
     }

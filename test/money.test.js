@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { splitEqual, splitPercent, bucketDebts, debtsByPair, pendingPayments, pendingKey, toCents } from '../src/lib/money.js';
+import { splitEqual, splitPercent, bucketDebts, debtsByPair, pendingPayments, pendingKey, smartTransfers, toCents } from '../src/lib/money.js';
 
 const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
 
@@ -61,4 +61,33 @@ test('pending and declined payments do not clear anything until confirmed', () =
   assert.equal(bucketDebts(expenses, [pending, rejected]).length, 1);
   assert.equal(pendingPayments([pending, rejected]).get(pendingKey('P', 'N', 'Cab')), 5000);
   assert.equal(bucketDebts(expenses, [{ ...pending, status: 'confirmed' }]).length, 0);
+});
+
+test('smart settle: a chain collapses into one payment', () => {
+  // C owes B 300 (Food), B owes A 300 (Cab) → C pays A once
+  const t = smartTransfers([
+    { bucket: 'Food', debtor: 'C', creditor: 'B', cents: 30000 },
+    { bucket: 'Cab', debtor: 'B', creditor: 'A', cents: 30000 },
+  ]);
+  assert.deepEqual(t, [{ from: 'C', to: 'A', cents: 30000 }]);
+});
+
+test('smart settle: payments always clear every balance', () => {
+  const debts = [
+    { debtor: 'A', creditor: 'B', cents: 700 },
+    { debtor: 'B', creditor: 'C', cents: 200 },
+    { debtor: 'C', creditor: 'A', cents: 100 },
+    { debtor: 'D', creditor: 'B', cents: 450 },
+  ];
+  const left = {};
+  for (const d of debts) {
+    left[d.debtor] = (left[d.debtor] || 0) - d.cents;
+    left[d.creditor] = (left[d.creditor] || 0) + d.cents;
+  }
+  for (const t of smartTransfers(debts)) {
+    left[t.from] += t.cents;
+    left[t.to] -= t.cents;
+  }
+  assert.ok(Object.values(left).every((v) => v === 0));
+  assert.ok(smartTransfers(debts).length < debts.length);
 });

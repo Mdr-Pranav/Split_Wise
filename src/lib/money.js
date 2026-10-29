@@ -127,6 +127,31 @@ export function debtsByPair(debts) {
   return [...map.values()].sort((a, b) => b.cents - a.cents);
 }
 
+// Smart settle preview: the fewest payments that clear everyone, across all
+// buckets (biggest debtor pays biggest creditor, repeat). Mirrors
+// start_smart_settle() in schema.sql. Returns [{ from, to, cents }].
+export function smartTransfers(debts) {
+  const nets = new Map();
+  for (const d of debts) {
+    nets.set(d.creditor, (nets.get(d.creditor) || 0) + d.cents);
+    nets.set(d.debtor, (nets.get(d.debtor) || 0) - d.cents);
+  }
+  const out = [];
+  for (;;) {
+    let c = null;
+    let dr = null;
+    for (const [id, v] of nets) {
+      if (v > 0 && (c === null || v > nets.get(c))) c = id;
+      if (v < 0 && (dr === null || v < nets.get(dr))) dr = id;
+    }
+    if (c === null || dr === null) return out;
+    const cents = Math.min(nets.get(c), -nets.get(dr));
+    out.push({ from: dr, to: c, cents });
+    nets.set(c, nets.get(c) - cents);
+    nets.set(dr, nets.get(dr) + cents);
+  }
+}
+
 // "₹1,200 · $40" when someone has groups in more than one currency
 export function formatTotals(byCurrency) {
   const parts = Object.entries(byCurrency)

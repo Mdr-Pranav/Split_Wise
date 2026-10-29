@@ -5,7 +5,7 @@ import { useToast } from '../context/ToastContext';
 
 const LAST_APP_KEY = 'splitzy-upi-app';
 
-// Payment helper inside Settle up: the receiver's UPI ID and the amount to
+// Payment helper inside Settle: the receiver's UPI ID and the amount to
 // copy, then two ways to pay. "Show QR" works on laptops (scan it with your
 // phone); "Open app" works on phones (copies the UPI ID and launches the
 // app's home screen). The one that doesn't fit the device stays visible but

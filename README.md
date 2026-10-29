@@ -29,7 +29,7 @@ All demo passwords are `demo`. *Reset demo data* is in the same menu.
 ### 1. Database: Supabase
 1. Create a free project at [supabase.com](https://supabase.com) (pick the region nearest you, e.g. Mumbai).
 2. **SQL Editor** → New query → paste all of [`supabase/schema.sql`](supabase/schema.sql) → **Run**.
-   Already ran an older `schema.sql`? Instead run the files in [`supabase/migrations`](supabase/migrations) you haven't run yet, in order (`001_upi_ids.sql`, `002_profile_picture.sql`, then `003_group_picture.sql`).
+   Already ran an older `schema.sql`? Instead run the files in [`supabase/migrations`](supabase/migrations) you haven't run yet, in order (`001_upi_ids.sql`, `002_profile_picture.sql`, `003_group_picture.sql`, `004_settle_everything.sql`, then `005_smart_settle.sql`).
 3. **Authentication → Sign In / Providers → Email**: either keep *Confirm email* on, or turn it off so people can use the app straight after signing up. Supabase's built-in mailer only sends a few emails per hour; add custom SMTP (e.g. Resend's free tier) if many people will sign up.
 4. **Project Settings → API keys**: copy the *Project URL* and the *publishable* key (or the legacy *anon* key).
 

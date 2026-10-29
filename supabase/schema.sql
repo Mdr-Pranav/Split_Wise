@@ -108,6 +108,11 @@ create table public.settlements (
   status text not null default 'pending' check (status in ('pending', 'confirmed', 'rejected')),
   -- "Clear all" makes one row per bucket sharing a batch, confirmed together
   batch_id uuid not null default gen_random_uuid(),
+  -- Who confirms it. Normally the person paid (to_user); in a "settle
+  -- everything" batch, rows run both ways and the net receiver confirms all.
+  confirm_by uuid references public.profiles (id),
+  -- Set on the rows a completed smart settle writes to clear the snapshot
+  plan_id uuid,
   decided_at timestamptz,
   created_by uuid not null references public.profiles (id),
   created_at timestamptz not null default now(),
@@ -116,6 +121,51 @@ create table public.settlements (
 create index settlements_group_idx on public.settlements (group_id, settled_on desc);
 create index settlements_inbox_idx on public.settlements (to_user, status);
 create index settlements_batch_idx on public.settlements (batch_id);
+
+-- Smart settle: the fewest payments that clear every debt in a group.
+-- A plan snapshots the group's bucket debts, works out the transfers, needs
+-- everyone involved to approve, then each transfer is paid and confirmed.
+-- When the last one is confirmed, every snapshotted bucket debt clears.
+create table public.smart_plans (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid not null references public.groups (id) on delete cascade,
+  created_by uuid not null references public.profiles (id) on delete cascade,
+  status text not null default 'approving' check (status in ('approving', 'paying', 'done', 'cancelled')),
+  created_at timestamptz not null default now(),
+  finished_at timestamptz
+);
+-- At most one open plan per group
+create unique index smart_plans_one_open on public.smart_plans (group_id) where status in ('approving', 'paying');
+
+-- The debts the plan clears, as they stood when it was proposed
+create table public.smart_plan_items (
+  plan_id uuid not null references public.smart_plans (id) on delete cascade,
+  debtor uuid not null references public.profiles (id) on delete cascade,
+  creditor uuid not null references public.profiles (id) on delete cascade,
+  bucket text not null,
+  amount numeric(12, 2) not null check (amount > 0)
+);
+create index smart_plan_items_plan_idx on public.smart_plan_items (plan_id);
+
+-- Everyone whose balance the plan changes; all of them must approve
+create table public.smart_plan_members (
+  plan_id uuid not null references public.smart_plans (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  approved_at timestamptz,
+  primary key (plan_id, user_id)
+);
+
+-- The actual payments: one per pair, as few as possible
+create table public.smart_transfers (
+  id uuid primary key default gen_random_uuid(),
+  plan_id uuid not null references public.smart_plans (id) on delete cascade,
+  from_user uuid not null references public.profiles (id) on delete cascade,
+  to_user uuid not null references public.profiles (id) on delete cascade,
+  amount numeric(12, 2) not null check (amount > 0),
+  paid_at timestamptz,
+  confirmed_at timestamptz
+);
+create index smart_transfers_plan_idx on public.smart_transfers (plan_id);
 
 -- Reminders from the person owed to the person who owes, shown in the
 -- debtor's bell. At most one per pair per group per day.
@@ -209,6 +259,10 @@ alter table public.expenses enable row level security;
 alter table public.expense_splits enable row level security;
 alter table public.settlements enable row level security;
 alter table public.nudges enable row level security;
+alter table public.smart_plans enable row level security;
+alter table public.smart_plan_items enable row level security;
+alter table public.smart_plan_members enable row level security;
+alter table public.smart_transfers enable row level security;
 
 create policy "see related profiles" on public.profiles
   for select to authenticated using (public.can_see_profile(id));
@@ -243,6 +297,15 @@ create policy "members see splits" on public.expense_splits
 
 create policy "members see settlements" on public.settlements
   for select to authenticated using (public.is_member(group_id));
+
+create policy "members see smart plans" on public.smart_plans
+  for select to authenticated using (public.is_member(group_id));
+create policy "members see smart plan items" on public.smart_plan_items
+  for select to authenticated using (exists (select 1 from public.smart_plans p where p.id = plan_id and public.is_member(p.group_id)));
+create policy "members see smart plan members" on public.smart_plan_members
+  for select to authenticated using (exists (select 1 from public.smart_plans p where p.id = plan_id and public.is_member(p.group_id)));
+create policy "members see smart transfers" on public.smart_transfers
+  for select to authenticated using (exists (select 1 from public.smart_plans p where p.id = plan_id and public.is_member(p.group_id)));
 
 create policy "see own nudges" on public.nudges
   for select to authenticated using (from_user = (select auth.uid()) or to_user = (select auth.uid()));
@@ -478,6 +541,10 @@ begin
   if exists (select 1 from settlements where group_id = p_group_id and status = 'pending'
              and p_user_id in (from_user, to_user)) then
     raise exception 'They have payments waiting to be confirmed';
+  end if;
+  if exists (select 1 from smart_plan_members m join smart_plans p on p.id = m.plan_id
+             where p.group_id = p_group_id and p.status in ('approving', 'paying') and m.user_id = p_user_id) then
+    raise exception 'They''re part of a smart settle in progress';
   end if;
 
   delete from group_members where group_id = p_group_id and user_id = p_user_id;
@@ -721,6 +788,9 @@ begin
   if (select count(*) from group_members where group_id = p_group_id and user_id in (p_from, p_to)) <> 2 then
     raise exception 'Both people must be in the group';
   end if;
+  if exists (select 1 from smart_plans where group_id = p_group_id and status in ('approving', 'paying')) then
+    raise exception 'A smart settle is in progress in this group. Finish or cancel it first.';
+  end if;
 end;
 $$;
 
@@ -827,6 +897,8 @@ end;
 $$;
 
 -- Payments waiting for the current user to accept, one row per batch.
+-- total is what the user receives net (a "settle everything" batch has rows
+-- both ways); bucket amounts are signed the same way (negative = they paid).
 create function public.my_pending_payments()
 returns table (
   batch_id uuid,
@@ -844,29 +916,33 @@ returns table (
 )
 language sql stable security definer set search_path = public
 as $$
-  select
-    s.batch_id,
-    s.group_id,
-    g.name,
-    g.currency,
-    s.from_user,
-    p.display_name,
-    p.avatar_emoji,
-    p.avatar_color,
-    sum(s.amount),
-    jsonb_agg(jsonb_build_object('bucket', s.bucket, 'amount', s.amount) order by s.amount desc),
-    max(s.note),
-    max(s.created_at)
-  from settlements s
-  join groups g on g.id = s.group_id
-  join profiles p on p.id = s.from_user
-  where s.to_user = auth.uid() and s.status = 'pending'
-    and exists (select 1 from group_members m where m.group_id = s.group_id and m.user_id = auth.uid())
-  group by s.batch_id, s.group_id, g.name, g.currency, s.from_user, p.display_name, p.avatar_emoji, p.avatar_color
-  order by max(s.created_at) desc;
+  with b as (
+    select
+      s.batch_id,
+      s.group_id,
+      (array_agg(case when s.from_user = auth.uid() then s.to_user else s.from_user end))[1] as other,
+      sum(case when s.to_user = auth.uid() then s.amount else -s.amount end) as total,
+      jsonb_agg(
+        jsonb_build_object('bucket', s.bucket, 'amount', case when s.to_user = auth.uid() then s.amount else -s.amount end)
+        order by s.amount desc
+      ) as buckets,
+      max(s.note) as note,
+      max(s.created_at) as created_at
+    from settlements s
+    where coalesce(s.confirm_by, s.to_user) = auth.uid() and s.status = 'pending'
+      and exists (select 1 from group_members m where m.group_id = s.group_id and m.user_id = auth.uid())
+    group by s.batch_id, s.group_id
+  )
+  select b.batch_id, b.group_id, g.name, g.currency, b.other, p.display_name, p.avatar_emoji, p.avatar_color,
+         b.total, b.buckets, b.note, b.created_at
+  from b
+  join groups g on g.id = b.group_id
+  join profiles p on p.id = b.other
+  order by b.created_at desc;
 $$;
 
--- The person being paid accepts (clears the debt) or declines a batch.
+-- The confirmer (the person paid, or the net receiver of a "settle
+-- everything" batch) accepts (clears the debts) or declines a batch.
 create function public.respond_payment(p_batch_id uuid, p_accept boolean)
 returns void
 language plpgsql security definer set search_path = public
@@ -875,7 +951,7 @@ declare
   v_row settlements%rowtype;
   v_due numeric;
 begin
-  if not exists (select 1 from settlements where batch_id = p_batch_id and to_user = auth.uid() and status = 'pending') then
+  if not exists (select 1 from settlements where batch_id = p_batch_id and coalesce(confirm_by, to_user) = auth.uid() and status = 'pending') then
     raise exception 'Only the person being paid can confirm this';
   end if;
 
@@ -896,6 +972,61 @@ begin
 end;
 $$;
 
+-- Settle everything between two people: every bucket either of them owes
+-- the other is cleared in one batch, and only the difference changes hands.
+-- The net receiver confirms (instantly if they're the one recording it, or
+-- if it nets to zero).
+create function public.settle_pair(p_group_id uuid, p_a uuid, p_b uuid, p_note text default null)
+returns json
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_net numeric;      -- positive: a owes b overall
+  v_count int;
+  v_receiver uuid;
+  v_status text;
+  v_batch uuid := gen_random_uuid();
+begin
+  perform check_payment_rights(p_group_id, p_a, p_b);
+
+  select coalesce(sum(case when x.debtor = p_a then x.payable else -x.payable end), 0), count(*)
+  into v_net, v_count
+  from (
+    select d.debtor, payable_amount(p_group_id, d.debtor, d.creditor, d.bucket) as payable
+    from bucket_debts(p_group_id) d
+    where (d.debtor = p_a and d.creditor = p_b) or (d.debtor = p_b and d.creditor = p_a)
+  ) x
+  where x.payable > 0;
+
+  if v_count = 0 then
+    if exists (select 1 from settlements where group_id = p_group_id and status = 'pending'
+               and ((from_user = p_a and to_user = p_b) or (from_user = p_b and to_user = p_a))) then
+      raise exception 'Already waiting for confirmation';
+    end if;
+    raise exception 'Nothing to settle between these two';
+  end if;
+
+  v_receiver := case when v_net >= 0 then p_b else p_a end;
+  v_status := case when v_net = 0 or auth.uid() = v_receiver then 'confirmed' else 'pending' end;
+
+  insert into settlements (group_id, from_user, to_user, bucket, amount, note, settled_on, created_by, status, batch_id, confirm_by, decided_at)
+  select p_group_id, d.debtor, d.creditor, d.bucket, payable_amount(p_group_id, d.debtor, d.creditor, d.bucket),
+         nullif(trim(p_note), ''), current_date, auth.uid(), v_status, v_batch, v_receiver,
+         case when v_status = 'confirmed' then now() end
+  from bucket_debts(p_group_id) d
+  where ((d.debtor = p_a and d.creditor = p_b) or (d.debtor = p_b and d.creditor = p_a))
+    and payable_amount(p_group_id, d.debtor, d.creditor, d.bucket) > 0;
+
+  return json_build_object(
+    'count', v_count,
+    'status', v_status,
+    'net', abs(v_net),
+    'payer', case when v_net >= 0 then p_a else p_b end,
+    'receiver', v_receiver
+  );
+end;
+$$;
+
 -- Pending: the payer can withdraw it. Confirmed: only the receiver or the
 -- owner can undo it (the debt comes back). Declined: anyone involved can
 -- tidy it away.
@@ -908,8 +1039,14 @@ declare
 begin
   select * into v_row from settlements where id = p_settlement_id;
   if not found or not is_member(v_row.group_id) then raise exception 'Payment not found'; end if;
-  if v_row.status = 'pending' and auth.uid() not in (v_row.from_user, v_row.created_by) then
-    raise exception 'Only the person who sent it can withdraw it';
+  if v_row.plan_id is not null then raise exception 'This is part of a smart settle and can''t be removed on its own'; end if;
+  if v_row.status = 'pending' then
+    if auth.uid() not in (v_row.from_user, v_row.created_by) then
+      raise exception 'Only the person who sent it can withdraw it';
+    end if;
+    -- A batch (clear all / settle everything) is withdrawn as a whole
+    delete from settlements where batch_id = v_row.batch_id and status = 'pending';
+    return;
   end if;
   if v_row.status = 'confirmed' and auth.uid() <> v_row.to_user and not is_owner(v_row.group_id) then
     raise exception 'Only % or the owner can undo a confirmed payment',
@@ -1042,6 +1179,201 @@ begin
   if not is_owner(p_group_id) then raise exception 'Only the group owner can change this'; end if;
   update groups set nudge_after_days = least(greatest(coalesce(p_days, 3), 0), 60) where id = p_group_id;
 end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Smart settle
+-- ---------------------------------------------------------------------------
+
+create function public.open_smart_plan(p_group_id uuid)
+returns uuid
+language sql stable security definer set search_path = public
+as $$
+  select id from smart_plans where group_id = p_group_id and status in ('approving', 'paying');
+$$;
+
+-- Propose a smart settle: snapshot every bucket debt in the group and work
+-- out the fewest payments (biggest debtor pays biggest creditor, repeat).
+create function public.start_smart_settle(p_group_id uuid)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_plan uuid;
+  v_ids uuid[];
+  v_nets numeric[];
+  v_c int;
+  v_d int;
+  v_amt numeric;
+begin
+  if not is_member(p_group_id) then raise exception 'Group not found'; end if;
+  if open_smart_plan(p_group_id) is not null then raise exception 'A smart settle is already in progress'; end if;
+  if exists (select 1 from settlements where group_id = p_group_id and status = 'pending') then
+    raise exception 'Some payments are still waiting to be confirmed. Confirm or decline them first.';
+  end if;
+  if not exists (select 1 from bucket_debts(p_group_id)) then raise exception 'Everyone is already settled'; end if;
+
+  insert into smart_plans (group_id, created_by) values (p_group_id, auth.uid()) returning id into v_plan;
+
+  insert into smart_plan_items (plan_id, debtor, creditor, bucket, amount)
+  select v_plan, d.debtor, d.creditor, d.bucket, d.amount from bucket_debts(p_group_id) d;
+
+  -- Each person's net across every bucket (positive: gets money back)
+  select array_agg(n.uid order by n.uid), array_agg(n.net order by n.uid)
+  into v_ids, v_nets
+  from (
+    select t.uid, sum(t.amt) as net
+    from (
+      select creditor as uid, amount as amt from smart_plan_items where plan_id = v_plan
+      union all
+      select debtor, -amount from smart_plan_items where plan_id = v_plan
+    ) t
+    group by t.uid
+  ) n;
+
+  -- Everyone in the snapshot approves, even if they net to zero (their buckets still clear)
+  insert into smart_plan_members (plan_id, user_id, approved_at)
+  select v_plan, x.uid, case when x.uid = auth.uid() then now() end
+  from (select debtor as uid from smart_plan_items where plan_id = v_plan
+        union select creditor from smart_plan_items where plan_id = v_plan) x;
+
+  loop
+    v_c := null;
+    v_d := null;
+    for i in 1 .. coalesce(array_length(v_ids, 1), 0) loop
+      if v_nets[i] >= 0.01 and (v_c is null or v_nets[i] > v_nets[v_c]) then v_c := i; end if;
+      if v_nets[i] <= -0.01 and (v_d is null or v_nets[i] < v_nets[v_d]) then v_d := i; end if;
+    end loop;
+    exit when v_c is null or v_d is null;
+    v_amt := least(v_nets[v_c], -v_nets[v_d]);
+    insert into smart_transfers (plan_id, from_user, to_user, amount) values (v_plan, v_ids[v_d], v_ids[v_c], v_amt);
+    v_nets[v_c] := v_nets[v_c] - v_amt;
+    v_nets[v_d] := v_nets[v_d] + v_amt;
+  end loop;
+
+  -- Only the proposer involved (can't happen with two people) or all approved already
+  if not exists (select 1 from smart_plan_members where plan_id = v_plan and approved_at is null) then
+    update smart_plans set status = 'paying' where id = v_plan;
+  end if;
+  return v_plan;
+end;
+$$;
+
+-- Everyone in the plan approves; one decline cancels it
+create function public.respond_smart_plan(p_plan_id uuid, p_approve boolean)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not exists (select 1 from smart_plan_members m join smart_plans p on p.id = m.plan_id
+                 where m.plan_id = p_plan_id and m.user_id = auth.uid() and p.status = 'approving') then
+    raise exception 'Nothing to approve here';
+  end if;
+  if p_approve then
+    update smart_plan_members set approved_at = coalesce(approved_at, now()) where plan_id = p_plan_id and user_id = auth.uid();
+    if not exists (select 1 from smart_plan_members where plan_id = p_plan_id and approved_at is null) then
+      update smart_plans set status = 'paying' where id = p_plan_id;
+    end if;
+  else
+    update smart_plans set status = 'cancelled', finished_at = now() where id = p_plan_id;
+  end if;
+end;
+$$;
+
+-- Payer says they've sent their transfer
+create function public.mark_transfer_paid(p_transfer_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  update smart_transfers t set paid_at = coalesce(t.paid_at, now())
+  from smart_plans p
+  where t.id = p_transfer_id and p.id = t.plan_id and p.status = 'paying' and t.from_user = auth.uid();
+  if not found then raise exception 'Only the payer can mark this as paid'; end if;
+end;
+$$;
+
+-- Receiver confirms; the last confirmation clears every snapshotted debt
+create function public.confirm_transfer(p_transfer_id uuid)
+returns text
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_plan smart_plans%rowtype;
+begin
+  select p.* into v_plan from smart_transfers t join smart_plans p on p.id = t.plan_id
+  where t.id = p_transfer_id and t.to_user = auth.uid() and p.status = 'paying' and t.confirmed_at is null
+  for update of p;
+  if not found then raise exception 'Only the person receiving it can confirm this'; end if;
+
+  update smart_transfers set confirmed_at = now(), paid_at = coalesce(paid_at, now()) where id = p_transfer_id;
+
+  if exists (select 1 from smart_transfers where plan_id = v_plan.id and confirmed_at is null) then
+    return 'paying';
+  end if;
+
+  insert into settlements (group_id, from_user, to_user, bucket, amount, note, settled_on, created_by, status, batch_id, decided_at, plan_id)
+  select v_plan.group_id, i.debtor, i.creditor, i.bucket, i.amount, 'Smart settle', current_date, auth.uid(), 'confirmed', v_plan.id, now(), v_plan.id
+  from smart_plan_items i where i.plan_id = v_plan.id;
+
+  update smart_plans set status = 'done', finished_at = now() where id = v_plan.id;
+  return 'done';
+end;
+$$;
+
+-- The proposer or the owner can call it off before any money is confirmed
+create function public.cancel_smart_plan(p_plan_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_plan smart_plans%rowtype;
+begin
+  select * into v_plan from smart_plans where id = p_plan_id and status in ('approving', 'paying');
+  if not found or not is_member(v_plan.group_id) then raise exception 'Smart settle not found'; end if;
+  if auth.uid() <> v_plan.created_by and not is_owner(v_plan.group_id) then
+    raise exception 'Only whoever proposed it or the owner can cancel it';
+  end if;
+  if exists (select 1 from smart_transfers where plan_id = p_plan_id and confirmed_at is not null) then
+    raise exception 'Some payments are already confirmed, so it can only be finished now';
+  end if;
+  update smart_plans set status = 'cancelled', finished_at = now() where id = p_plan_id;
+end;
+$$;
+
+-- For the bell: plans waiting on my approval, and transfers waiting on my confirmation
+create function public.my_smart_tasks()
+returns table (
+  kind text,
+  plan_id uuid,
+  transfer_id uuid,
+  group_id uuid,
+  group_name text,
+  currency text,
+  other_user uuid,
+  other_name text,
+  amount numeric,
+  created_at timestamptz
+)
+language sql stable security definer set search_path = public
+as $$
+  select 'approve', p.id, null::uuid, g.id, g.name, g.currency, p.created_by, pr.display_name,
+         (select coalesce(sum(case when t.to_user = auth.uid() then t.amount else -t.amount end), 0)
+          from smart_transfers t where t.plan_id = p.id and auth.uid() in (t.from_user, t.to_user)),
+         p.created_at
+  from smart_plans p
+  join smart_plan_members m on m.plan_id = p.id and m.user_id = auth.uid() and m.approved_at is null
+  join groups g on g.id = p.group_id
+  join profiles pr on pr.id = p.created_by
+  where p.status = 'approving' and is_member(p.group_id)
+  union all
+  select 'confirm', p.id, t.id, g.id, g.name, g.currency, t.from_user, pr.display_name, t.amount, coalesce(t.paid_at, p.created_at)
+  from smart_transfers t
+  join smart_plans p on p.id = t.plan_id
+  join groups g on g.id = p.group_id
+  join profiles pr on pr.id = t.from_user
+  where t.to_user = auth.uid() and t.confirmed_at is null and p.status = 'paying' and is_member(p.group_id)
+  order by 10 desc;
 $$;
 
 -- Used by the keep-alive GitHub Action so the free project never pauses.
