@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { isDemo } from '../lib/auth';
 import Icon from '../components/Icon';
 import { ErrorNote } from '../components/AuthShell';
+import { useTitle } from '../hooks/useTitle';
 
 // Shows the code as XXXX-XXXX while typing
 function formatCode(raw) {
@@ -12,6 +13,7 @@ function formatCode(raw) {
 }
 
 export default function JoinGroup() {
+  useTitle('Join a group');
   const [params] = useSearchParams();
   const [code, setCode] = useState(formatCode(params.get('code') || ''));
   const [error, setError] = useState('');

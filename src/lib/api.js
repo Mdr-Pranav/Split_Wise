@@ -1,16 +1,20 @@
 import { isConfigured, supabase } from './supabase';
 import { mockApi } from './mock';
+import { cacheUser, cachedRead, isNetworkError } from './offline';
+import { enqueue } from './outbox';
+
+const OFFLINE = 'You’re offline. Try again once you’re connected.';
 
 // Every write is a database function that checks permissions server side.
 async function rpc(name, args) {
   const { data, error } = await supabase.rpc(name, args);
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(isNetworkError(error) ? OFFLINE : error.message);
   return data;
 }
 
 async function query(builder) {
   const { data, error } = await builder;
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(isNetworkError(error) ? OFFLINE : error.message);
   return data;
 }
 
@@ -45,18 +49,33 @@ const supabaseApi = {
         .order('created_at', { ascending: false })
     ),
 
-  saveExpense: (e) =>
-    rpc('save_expense', {
-      p_expense_id: e.id ?? null,
-      p_group_id: e.groupId,
-      p_bucket: e.bucket,
-      p_note: e.note || null,
-      p_amount: e.amount,
-      p_paid_by: e.paidBy,
-      p_split_type: e.splitType,
-      p_expense_date: e.date,
-      p_splits: e.splits,
-    }),
+  // Every change to an expense, newest first (deleted ones keep theirs)
+  expenseEvents: (groupId) =>
+    query(supabase.from('expense_events').select('*').eq('group_id', groupId).order('created_at', { ascending: false }).limit(500)),
+
+  // A new expense saved offline is queued and returns { queued: true }
+  saveExpense: async (e) => {
+    const clientId = e.clientId ?? (e.id ? null : crypto.randomUUID());
+    try {
+      return await rpc('save_expense', {
+        p_expense_id: e.id ?? null,
+        p_group_id: e.groupId,
+        p_bucket: e.bucket,
+        p_note: e.note || null,
+        p_amount: e.amount,
+        p_paid_by: e.paidBy,
+        p_split_type: e.splitType,
+        p_expense_date: e.date,
+        p_splits: e.splits,
+        p_client_id: clientId,
+      });
+    } catch (err) {
+      if (e.id || e.fromOutbox || err.message !== OFFLINE || !cacheUser()) throw err;
+      const { fromOutbox, ...expense } = e; // eslint-disable-line no-unused-vars
+      enqueue(cacheUser(), { ...expense, clientId });
+      return { queued: true };
+    }
+  },
   deleteExpense: (id) => rpc('delete_expense', { p_expense_id: id }),
   addSettlement: (s) =>
     rpc('add_settlement', {
@@ -143,7 +162,38 @@ const supabaseApi = {
   updateAvatar: (userId, { emoji, color }) =>
     query(supabase.from('profiles').update({ avatar_emoji: emoji || null, avatar_color: color || null }).eq('id', userId)),
   updateUpi: (userId, upi) => query(supabase.from('profiles').update({ upi_id: upi.trim() || null }).eq('id', userId)),
+
+  // The user's own list: pin to top, drag into order, archive
+  setGroupPinned: (groupId, pinned) => rpc('set_group_pinned', { p_group_id: groupId, p_pinned: pinned }),
+  setGroupArchived: (groupId, archived) => rpc('set_group_archived', { p_group_id: groupId, p_archived: archived }),
+  reorderGroups: (groupIds) => rpc('reorder_groups', { p_group_ids: groupIds }),
+
+  deleteAccount: () => rpc('delete_my_account'),
+
+  savePushSubscription: (endpoint, p256dh, auth) => rpc('save_push_subscription', { p_endpoint: endpoint, p_p256dh: p256dh, p_auth: auth }),
+  deletePushSubscription: (endpoint) => rpc('delete_push_subscription', { p_endpoint: endpoint }),
+  // false when the push function isn't set up on the server yet
+  sendTestPush: () => rpc('send_test_push'),
 };
+
+// Reads that still answer offline, from the last time they worked
+for (const name of [
+  'myGroups',
+  'group',
+  'balances',
+  'expenses',
+  'settlements',
+  'expenseEvents',
+  'smartPlans',
+  'mySmartTasks',
+  'pendingPayments',
+  'nudgeInfo',
+  'myNudges',
+  'invites',
+  'pendingRequests',
+]) {
+  supabaseApi[name] = cachedRead(name, supabaseApi[name]);
+}
 
 // No Supabase keys → run against the local demo backend
 export const api = isConfigured ? supabaseApi : mockApi;

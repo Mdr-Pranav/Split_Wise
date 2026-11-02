@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { isDemo } from '../lib/auth';
 import AuthShell, { ErrorNote } from '../components/AuthShell';
+import { useTitle } from '../hooks/useTitle';
 
 export default function Login() {
+  useTitle('Sign in');
   const { signIn } = useAuth();
   const [email, setEmail] = useState(isDemo ? 'pranav@demo.app' : '');
   const [password, setPassword] = useState(isDemo ? 'demo' : '');

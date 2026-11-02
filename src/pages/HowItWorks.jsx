@@ -1,6 +1,7 @@
 import Icon from '../components/Icon';
 import BucketIcon from '../components/BucketIcon';
 import { APP_NAME } from '../lib/brand';
+import { useTitle } from '../hooks/useTitle';
 
 // The ℹ️ page: how the whole app works, six cards with a tiny example each.
 // Sized to fit one laptop screen; phones scroll.
@@ -38,6 +39,7 @@ const Chip = ({ name, children }) => (
 );
 
 export default function HowItWorks() {
+  useTitle('How it works');
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">

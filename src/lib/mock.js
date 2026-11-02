@@ -6,7 +6,7 @@ import { bucketDebts, fromCents, smartTransfers, toCents } from './money';
 import { isValidUpi } from './upi';
 
 // Bumped when the sample data's shape changes, so old demo data is replaced
-const KEY = 'splitzy-demo-v10';
+const KEY = 'splitzy-demo-v11';
 const SESSION_KEY = 'splitzy-demo-session';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -81,6 +81,8 @@ function seed() {
     nudges: [
       { id: uid(), group_id: flat.id, from_user: rahul.id, to_user: me.id, amount: 2059.5, buckets: [{ bucket: 'Bills', amount: 2059.5 }], created_at: daysAgo(0.1), dismissed_at: null },
     ],
+    // Each person's own pins / order / archive for their groups
+    prefs: [{ group_id: goa.id, user_id: me.id, pinned: true, sort_order: null, archived_at: null }],
     expenses: [
       expense(goa, 'Travel', 'Flights to Goa', 21000, aisha, [[me, 7000], [aisha, 7000], [kabir, 7000]], 15),
       expense(goa, 'Stay', 'Villa booking', 18000, me, [[me, 6000], [aisha, 6000], [kabir, 6000]], 12),
@@ -102,8 +104,46 @@ function seed() {
       payment(goa, aisha, me, 'Stay', 6000, 'GPay', 0.2, 'pending'),
       payment(flat, rahul, me, 'Groceries', 602.75, null, 0.05, 'pending'),
     ],
+    events: [],
   };
 }
+
+// Sample history: Kabir fixed the dinner split, Aisha removed a duplicate
+function seedHistory(db) {
+  const dinner = db.expenses.find((e) => e.note === 'Dinner at Thalassa');
+  const [kabir, aisha, me] = ['kabir', 'aisha', 'pranav'].map((n) => db.users.find((u) => u.display_name.toLowerCase() === n));
+  const after = snapshot(dinner);
+  const before = { ...after, amount: 4800, splits: after.splits.map((s) => ({ ...s, amount: s.user_id === kabir.id ? 1300 : s.amount })) };
+  dinner.updated_at = daysAgo(8);
+  dinner.updated_by = kabir.id;
+  const goa = dinner.group_id;
+  db.events.push(
+    { id: uid(), group_id: goa, expense_id: dinner.id, action: 'created', actor: kabir.id, before: null, after: before, created_at: daysAgo(9) },
+    { id: uid(), group_id: goa, expense_id: dinner.id, action: 'edited', actor: kabir.id, before, after, created_at: daysAgo(8) },
+    {
+      id: uid(),
+      group_id: goa,
+      expense_id: uid(),
+      action: 'deleted',
+      actor: aisha.id,
+      before: { bucket: 'Fun', note: 'Scuba (added twice)', amount: 2400, paid_by: aisha.id, split_type: 'equal', expense_date: dateOnly(daysAgo(10)), splits: [aisha, kabir, me].map((u) => ({ user_id: u.id, amount: 800 })) },
+      after: null,
+      created_at: daysAgo(7),
+    }
+  );
+  return db;
+}
+
+// An expense as the history stores it (same shape as expense_snapshot())
+const snapshot = (e) => ({
+  bucket: e.bucket,
+  note: e.note,
+  amount: e.amount,
+  paid_by: e.paid_by,
+  split_type: e.split_type,
+  expense_date: e.expense_date,
+  splits: [...e.expense_splits].sort((a, b) => a.user_id.localeCompare(b.user_id)).map((x) => ({ user_id: x.user_id, amount: x.amount })),
+});
 
 function load() {
   try {
@@ -112,7 +152,7 @@ function load() {
   } catch {
     // fall through to fresh seed
   }
-  const db = seed();
+  const db = seedHistory(seed());
   save(db);
   return db;
 }
@@ -199,7 +239,7 @@ export const mockAuth = {
   },
   // Demo helpers
   users: () =>
-    load().users.map(({ id, display_name, email, avatar_emoji, avatar_color }) => ({
+    load().users.filter((u) => !u.deleted).map(({ id, display_name, email, avatar_emoji, avatar_color }) => ({
       id,
       display_name,
       email,
@@ -231,6 +271,19 @@ function me() {
 const isMember = (db, gid, u) => db.members.some((m) => m.group_id === gid && m.user_id === u);
 const isOwner = (db, gid, u) => db.groups.some((g) => g.id === gid && g.owner_id === u);
 const userById = (db, id) => db.users.find((u) => u.id === id);
+const prefOf = (db, gid, u) => (db.prefs || []).find((p) => p.group_id === gid && p.user_id === u);
+
+function setPref(db, gid, u, patch) {
+  db.prefs = db.prefs || [];
+  let p = prefOf(db, gid, u);
+  if (!p) {
+    p = { group_id: gid, user_id: u, pinned: false, sort_order: null, archived_at: null };
+    db.prefs.push(p);
+  }
+  Object.assign(p, patch);
+}
+
+const canEditExpense = (db, e, u) => [e.created_by, e.paid_by].includes(u) || isOwner(db, e.group_id, u);
 
 function balances(db, gid) {
   const g = db.groups.find((x) => x.id === gid);
@@ -360,6 +413,7 @@ export const mockApi = {
       .filter((g) => isMember(db, g.id, u))
       .map((g) => {
         const last = [g.created_at, ...db.expenses.filter((e) => e.group_id === g.id).map((e) => e.created_at), ...db.settlements.filter((s) => s.group_id === g.id).map((s) => s.created_at)].sort().pop();
+        const pref = prefOf(db, g.id, u);
         return {
           ...g,
           owner_name: userById(db, g.owner_id).display_name,
@@ -367,9 +421,37 @@ export const mockApi = {
           my_owe: fromCents(debtsIn(db, g.id).filter((d) => d.debtor === u).reduce((a, d) => a + d.cents, 0)),
           my_owed: fromCents(debtsIn(db, g.id).filter((d) => d.creditor === u).reduce((a, d) => a + d.cents, 0)),
           last_activity: last,
+          pinned: Boolean(pref?.pinned),
+          archived: Boolean(pref?.archived_at),
+          sort_order: pref?.sort_order ?? null,
         };
       })
-      .sort((a, b) => b.last_activity.localeCompare(a.last_activity));
+      // Same order as my_groups(): archived last, pinned first, own order (new on top), recent
+      .sort(
+        (a, b) =>
+          a.archived - b.archived ||
+          b.pinned - a.pinned ||
+          (a.sort_order == null ? -1 : 0) - (b.sort_order == null ? -1 : 0) ||
+          (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+          b.last_activity.localeCompare(a.last_activity)
+      );
+  }),
+
+  setGroupPinned: mutate((db, gid, pinned) => {
+    const u = me();
+    if (!isMember(db, gid, u)) fail('Group not found');
+    setPref(db, gid, u, pinned ? { pinned: true, archived_at: null } : { pinned: false });
+  }),
+
+  setGroupArchived: mutate((db, gid, archived) => {
+    const u = me();
+    if (!isMember(db, gid, u)) fail('Group not found');
+    setPref(db, gid, u, archived ? { archived_at: prefOf(db, gid, u)?.archived_at || now(), pinned: false } : { archived_at: null });
+  }),
+
+  reorderGroups: mutate((db, ids) => {
+    const u = me();
+    ids.forEach((gid, i) => isMember(db, gid, u) && setPref(db, gid, u, { sort_order: i + 1 }));
   }),
 
   createGroup: mutate((db, name, currency = 'INR') => {
@@ -407,6 +489,8 @@ export const mockApi = {
     db.smartPlans = drop(db.smartPlans || []);
     db.expenses = drop(db.expenses);
     db.settlements = drop(db.settlements);
+    db.prefs = drop(db.prefs || []);
+    db.events = drop(db.events || []);
   }),
 
   transferOwnership: mutate((db, gid, userId) => {
@@ -430,6 +514,7 @@ export const mockApi = {
     const plan = openPlan(db, gid);
     if (plan?.smart_plan_members.some((m) => m.user_id === userId)) fail('They’re part of a smart settle in progress');
     db.members = db.members.filter((m) => !(m.group_id === gid && m.user_id === userId));
+    db.prefs = (db.prefs || []).filter((p) => !(p.group_id === gid && p.user_id === userId));
   }),
 
   group: read((db, gid) => {
@@ -458,9 +543,19 @@ export const mockApi = {
       : []
   ),
 
+  expenseEvents: read((db, gid) =>
+    isMember(db, gid, me()) ? (db.events || []).filter((ev) => ev.group_id === gid).sort((a, b) => b.created_at.localeCompare(a.created_at)) : []
+  ),
+
   saveExpense: mutate((db, e) => {
     const u = me();
     if (!isMember(db, e.groupId, u)) fail('Group not found');
+    // A retried offline save
+    const dup = !e.id && e.clientId && db.expenses.find((x) => x.client_id === e.clientId);
+    if (dup) return dup.id;
+    const existing = e.id && db.expenses.find((x) => x.id === e.id && x.group_id === e.groupId);
+    if (e.id && !existing) fail('Expense not found');
+    if (existing && !canEditExpense(db, existing, u)) fail('Only whoever added it, whoever paid, or the owner can change this expense');
     if (!e.bucket?.trim()) fail('Pick a bucket');
     const bucket =
       db.expenses.find((x) => x.group_id === e.groupId && x.bucket.toLowerCase() === e.bucket.trim().toLowerCase())?.bucket ||
@@ -481,20 +576,36 @@ export const mockApi = {
       expense_date: e.date,
       expense_splits: e.splits.filter((s) => s.amount > 0),
     };
-    if (e.id) {
-      const existing = db.expenses.find((x) => x.id === e.id && x.group_id === e.groupId);
-      if (!existing) fail('Expense not found');
+    db.events = db.events || [];
+    const event = (action, expenseId, before, after) =>
+      db.events.push({ id: uid(), group_id: e.groupId, expense_id: expenseId, action, actor: u, before, after, created_at: now() });
+    if (existing) {
+      const before = snapshot(existing);
       Object.assign(existing, row);
+      const after = snapshot(existing);
+      if (JSON.stringify(before) !== JSON.stringify(after)) {
+        existing.updated_at = now();
+        existing.updated_by = u;
+        event('edited', existing.id, before, after);
+      }
       return existing.id;
     }
-    const created = { id: uid(), ...row, created_by: u, created_at: now() };
+    const created = { id: uid(), ...row, created_by: u, created_at: now(), client_id: e.clientId ?? null };
     db.expenses.push(created);
+    event('created', created.id, null, snapshot(created));
+    // A new expense brings an archived group back for everyone in it
+    const involved = new Set([row.paid_by, ...row.expense_splits.map((x) => x.user_id)]);
+    (db.prefs || []).forEach((p) => p.group_id === e.groupId && involved.has(p.user_id) && (p.archived_at = null));
     return created.id;
   }),
 
   deleteExpense: mutate((db, id) => {
+    const u = me();
     const e = db.expenses.find((x) => x.id === id);
-    if (!e || !isMember(db, e.group_id, me())) fail('Expense not found');
+    if (!e || !isMember(db, e.group_id, u)) fail('Expense not found');
+    if (!canEditExpense(db, e, u)) fail('Only whoever added it, whoever paid, or the owner can delete this expense');
+    db.events = db.events || [];
+    db.events.push({ id: uid(), group_id: e.group_id, expense_id: id, action: 'deleted', actor: u, before: snapshot(e), after: null, created_at: now() });
     db.expenses = db.expenses.filter((x) => x.id !== id);
   }),
 
@@ -874,4 +985,38 @@ export const mockApi = {
     if (value && !isValidUpi(value)) fail('new row for relation "profiles" violates check constraint');
     userById(db, userId).upi_id = value || null;
   }),
+
+  // Same rules as delete_my_account()
+  deleteAccount: async () => {
+    await wait();
+    const db = load();
+    const u = me();
+    const mine = db.groups.filter((g) => isMember(db, g.id, u));
+    const shared = mine.find((g) => g.owner_id === u && db.members.some((m) => m.group_id === g.id && m.user_id !== u));
+    if (shared) fail(`You own ${shared.name}. Hand it to someone else in its settings, or delete it, first.`);
+    const open = mine.find(
+      (g) =>
+        debtsIn(db, g.id).some((d) => d.debtor === u || d.creditor === u) ||
+        db.settlements.some((s) => s.group_id === g.id && s.status === 'pending' && [s.from_user, s.to_user].includes(u)) ||
+        openPlan(db, g.id)?.smart_plan_members.some((m) => m.user_id === u)
+    );
+    if (open) fail(`Settle up in ${open.name} first`);
+    const solo = new Set(db.groups.filter((g) => g.owner_id === u).map((g) => g.id));
+    const keep = (x) => !solo.has(x.group_id);
+    db.groups = db.groups.filter((g) => !solo.has(g.id));
+    for (const k of ['invites', 'requests', 'nudges', 'expenses', 'settlements', 'prefs', 'events']) db[k] = (db[k] || []).filter(keep);
+    db.smartPlans = (db.smartPlans || []).filter(keep);
+    db.members = db.members.filter((m) => m.user_id !== u);
+    db.prefs = db.prefs.filter((p) => p.user_id !== u);
+    db.requests = db.requests.filter((r) => r.user_id !== u);
+    db.nudges = db.nudges.filter((n) => n.from_user !== u && n.to_user !== u);
+    Object.assign(userById(db, u), { display_name: 'Deleted user', email: '', password: null, upi_id: null, avatar_emoji: null, avatar_color: null, deleted: true });
+    save(db);
+    setSession(null);
+  },
+
+  // Push needs the real backend; nothing to store in demo mode
+  savePushSubscription: async () => {},
+  deletePushSubscription: async () => {},
+  sendTestPush: async () => false,
 };

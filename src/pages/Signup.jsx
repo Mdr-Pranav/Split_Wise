@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import AuthShell, { ErrorNote } from '../components/AuthShell';
+import { useTitle } from '../hooks/useTitle';
 
 export default function Signup() {
+  useTitle('Create account');
   const { signUp } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');

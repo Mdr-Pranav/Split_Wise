@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { auth } from '../lib/auth';
 import { rememberLooks } from '../lib/avatars';
+import { clearCache, setCacheUser } from '../lib/offline';
+import { relinkPush, unlinkPush } from '../lib/push';
 
 const AuthContext = createContext(null);
 
@@ -28,9 +30,18 @@ export function AuthProvider({ children }) {
   }, []);
 
   const userId = session?.user?.id;
+  // Saved offline data belongs to whoever is signed in
+  setCacheUser(userId);
 
+  // This browser's notifications follow whoever signs in on it
+  useEffect(() => {
+    if (userId) relinkPush().catch(() => {});
+  }, [userId]);
+
+  // Offline the last profile is still the best answer
   const refreshProfile = useCallback(async () => {
-    const p = userId ? await auth.profile(userId) : null;
+    const p = userId ? await auth.profile(userId).catch(() => undefined) : null;
+    if (p === undefined) return;
     if (p) rememberLooks([[p.id, p.avatar_emoji, p.avatar_color]]);
     setProfile(p);
   }, [userId]);
@@ -50,7 +61,11 @@ export function AuthProvider({ children }) {
     refreshProfile,
     signIn: auth.signIn,
     signUp: auth.signUp,
-    signOut: auth.signOut,
+    signOut: async () => {
+      await unlinkPush();
+      clearCache();
+      await auth.signOut();
+    },
     resetPassword: auth.resetPassword,
     updatePassword: auth.updatePassword,
   };

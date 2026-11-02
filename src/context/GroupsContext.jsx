@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import { api } from '../lib/api';
 import { useAuth } from './AuthContext';
 import { rememberLooks } from '../lib/avatars';
+import { useLiveChange } from './InboxContext';
 
 const GroupsContext = createContext(null);
 const EVENT = 'groups-changed';
@@ -42,7 +43,11 @@ export function GroupsProvider({ children }) {
     };
   }, [refresh]);
 
-  return <GroupsContext.Provider value={{ groups, refresh }}>{children}</GroupsContext.Provider>;
+  // Balances, names and memberships change when other people act too
+  useLiveChange(refresh);
+
+  // setGroups: optimistic updates (reordering, pinning) before the reload
+  return <GroupsContext.Provider value={{ groups, setGroups, refresh }}>{children}</GroupsContext.Provider>;
 }
 
 export function useGroups() {

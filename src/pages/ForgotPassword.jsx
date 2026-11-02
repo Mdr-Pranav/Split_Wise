@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import AuthShell, { ErrorNote } from '../components/AuthShell';
+import { useTitle } from '../hooks/useTitle';
 
 export default function ForgotPassword() {
+  useTitle('Reset password');
   const { resetPassword } = useAuth();
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');

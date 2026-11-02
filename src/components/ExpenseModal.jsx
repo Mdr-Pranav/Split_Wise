@@ -7,7 +7,7 @@ import BucketIcon from './BucketIcon';
 import { ErrorNote } from './AuthShell';
 import { api } from '../lib/api';
 import { currencySymbol, formatMoney, fromCents, splitEqual, splitPercent, toCents } from '../lib/money';
-import { today } from '../lib/dates';
+import { shortDate, timeAgo, today } from '../lib/dates';
 import { canonicalBucket } from '../lib/buckets';
 
 const SPLIT_TYPES = [
@@ -44,6 +44,47 @@ function initialState(expense, members, me) {
     exact: Object.fromEntries(Object.entries(shares).map(([id, a]) => [id, String(a)])),
     percent: Object.fromEntries(Object.entries(shares).map(([id, a]) => [id, String(Math.round((a / total) * 10000) / 100)])),
   };
+}
+
+// What an edit changed, in words: "₹300 → ₹400 · Cab → Food · split changed"
+function describeEdit(before, after, nameOf, cur) {
+  const out = [];
+  if (Number(before.amount) !== Number(after.amount)) out.push(`${formatMoney(Number(before.amount), cur)} → ${formatMoney(Number(after.amount), cur)}`);
+  if (before.bucket !== after.bucket) out.push(`${before.bucket} → ${after.bucket}`);
+  if ((before.note || '') !== (after.note || '')) out.push(after.note ? `note “${after.note}”` : 'note removed');
+  if (before.paid_by !== after.paid_by) out.push(`paid by ${nameOf(after.paid_by) || 'someone else'}`);
+  if (before.expense_date !== after.expense_date) out.push(`date ${shortDate(after.expense_date)}`);
+  const splitKey = (x) => (x.splits || []).map((sp) => `${sp.user_id}:${Number(sp.amount)}`).sort().join();
+  if (splitKey(before) !== splitKey(after) && Number(before.amount) === Number(after.amount)) out.push('split changed');
+  return out.join(' · ') || 'no visible change';
+}
+
+// Who added this and every edit since, oldest first. Expenses from before
+// history was kept only know who added them.
+function History({ expense, history, nameOf, cur }) {
+  const rows = [...history].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  if (!rows.some((h) => h.action === 'created')) rows.unshift({ id: 'created', action: 'created', actor: expense.created_by, created_at: expense.created_at });
+  return (
+    <details className="group rounded-2xl bg-[rgb(var(--line)/0.05)] px-3 py-2 ring-1 ring-[rgb(var(--line)/0.06)]">
+      <summary className="flex cursor-pointer list-none items-center gap-2 text-[13px] font-medium text-slate-600 [&::-webkit-details-marker]:hidden">
+        <Icon name="history" className="h-4 w-4" />
+        History · {rows.length} {rows.length === 1 ? 'entry' : 'entries'}
+        <Icon name="chevron" className="ml-auto h-4 w-4 rotate-90 text-slate-400 transition-transform group-open:-rotate-90" />
+      </summary>
+      <ol className="mt-2 space-y-1.5 pb-1">
+        {rows.map((h) => (
+          <li key={h.id} className="flex items-start gap-2 text-[13px] leading-snug">
+            <Avatar id={h.actor} name={nameOf(h.actor)} size="sm" className="!h-5 !w-5 flex-shrink-0 !text-[9px] !ring-0" />
+            <span className="min-w-0 flex-1 text-slate-600">
+              <span className="font-medium text-ink">{nameOf(h.actor) || 'Someone'}</span>{' '}
+              {h.action === 'created' ? 'added it' : `edited it: ${describeEdit(h.before, h.after, nameOf, cur)}`}
+            </span>
+            <span className="flex-shrink-0 text-[12px] text-slate-400">{timeAgo(h.created_at)}</span>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
 }
 
 // Bucket field that collapses to one row; tap to show the chips. Opens by
@@ -151,7 +192,7 @@ function BucketPicker({ buckets, value, onChange }) {
   );
 }
 
-export default function ExpenseModal({ open, onClose, group, people, me, expense, buckets, onSaved }) {
+export default function ExpenseModal({ open, onClose, group, people, me, expense, buckets, canEdit = true, history = [], onSaved }) {
   const members = useMemo(() => people.filter((p) => p.is_member), [people]);
   // Someone removed from the group can still be the payer of an old expense
   const payers = useMemo(
@@ -161,11 +202,13 @@ export default function ExpenseModal({ open, onClose, group, people, me, expense
   const [form, setForm] = useState(() => initialState(expense, members, me));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (open) {
       setForm(initialState(expense, members, me));
       setError('');
+      setConfirmDelete(false);
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -210,7 +253,7 @@ export default function ExpenseModal({ open, onClose, group, people, me, expense
     setError('');
     setBusy(true);
     try {
-      await api.saveExpense({
+      const result = await api.saveExpense({
         id: expense?.id,
         groupId: group.id,
         bucket: form.bucket,
@@ -221,7 +264,7 @@ export default function ExpenseModal({ open, onClose, group, people, me, expense
         date: form.date,
         splits: Object.entries(shares).map(([user_id, c]) => ({ user_id, amount: fromCents(c) })),
       });
-      onSaved(expense ? 'Expense updated' : 'Expense added');
+      onSaved(result?.queued ? 'Saved offline. It’ll sync when you’re back online.' : expense ? 'Expense updated' : 'Expense added');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -245,6 +288,9 @@ export default function ExpenseModal({ open, onClose, group, people, me, expense
     set({ selected: new Set(form.selected.has(id) ? [...form.selected].filter((x) => x !== id) : [...form.selected, id]) });
 
   const nameOf = (id) => (id === me ? 'You' : people.find((p) => p.user_id === id)?.display_name || '');
+  const owner = people.find((p) => p.is_owner);
+  // "Only Rahul, Aisha or the owner can change this"
+  const editors = expense ? [...new Set([expense.created_by, expense.paid_by].map(nameOf).filter(Boolean))] : [];
   const included = members.filter((m) => form.selected.has(m.user_id));
   const each = included.length && totalCents > 0 ? Math.floor(totalCents / included.length) : 0;
 
@@ -267,9 +313,19 @@ export default function ExpenseModal({ open, onClose, group, people, me, expense
   return (
     <Modal open={open} onClose={onClose} labelledBy="expense-title" className="max-w-lg">
       <form onSubmit={save} className="space-y-3">
-        <h2 id="expense-title" className="pr-10 text-[20px] font-semibold text-ink">{expense ? 'Edit expense' : 'Add expense'}</h2>
+        <h2 id="expense-title" className="pr-10 text-[20px] font-semibold text-ink">{!expense ? 'Add expense' : canEdit ? 'Edit expense' : 'Expense'}</h2>
         <ErrorNote>{error}</ErrorNote>
+        {!canEdit && (
+          <p className="flex items-start gap-2 rounded-2xl bg-[rgb(var(--line)/0.05)] px-3 py-2.5 text-[13px] leading-snug text-slate-600">
+            <Icon name="info" className="mt-px h-4 w-4 flex-shrink-0 text-slate-400" />
+            {owner && editors.includes(owner.display_name)
+              ? `Only ${editors.join(' or ')} can change this expense.`
+              : `Only ${editors.join(' or ')} or the group owner${owner ? ` (${owner.display_name})` : ''} can change this expense.`}
+          </p>
+        )}
 
+        {/* Disabled as a whole for people who can't edit it */}
+        <fieldset disabled={!canEdit} className="min-w-0 space-y-3">
         <BucketPicker buckets={buckets} value={form.bucket} onChange={(bucket) => set({ bucket })} />
 
         {/* Amount and date in one row */}
@@ -409,17 +465,36 @@ export default function ExpenseModal({ open, onClose, group, people, me, expense
             </p>
           )}
         </div>
+        </fieldset>
 
-        <div className="flex gap-2 pt-0.5">
-          {expense && (
-            <button type="button" onClick={remove} disabled={busy} className="btn-secondary h-12 !px-4 !text-rose-600" aria-label="Delete expense">
-              <Icon name="trash" className="h-4 w-4" />
-            </button>
-          )}
-          <button type="submit" disabled={busy} className="btn-primary h-12 flex-1">
-            {busy ? 'Saving…' : expense ? 'Save changes' : 'Add expense'}
-          </button>
-        </div>
+        {canEdit &&
+          (confirmDelete ? (
+            <div role="alertdialog" aria-labelledby="delete-title" className="rounded-2xl bg-rose-500/[0.07] p-3 ring-1 ring-rose-500/20">
+              <p id="delete-title" className="text-[15px] font-semibold text-ink">Delete this expense?</p>
+              <p className="mt-0.5 text-[13px] leading-snug text-slate-600">It comes out of everyone’s balances. The activity feed keeps a note that you deleted it.</p>
+              <div className="mt-2.5 flex gap-2">
+                <button type="button" autoFocus onClick={() => setConfirmDelete(false)} disabled={busy} className="btn-secondary h-11 flex-1">
+                  Keep it
+                </button>
+                <button type="button" onClick={remove} disabled={busy} className="btn-primary h-11 flex-1 !bg-[#ff3b30] hover:!bg-[#ff453a]">
+                  {busy ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2 pt-0.5">
+              {expense && (
+                <button type="button" onClick={() => setConfirmDelete(true)} disabled={busy} className="btn-secondary h-12 !px-4 !text-rose-600" aria-label="Delete expense">
+                  <Icon name="trash" className="h-4 w-4" />
+                </button>
+              )}
+              <button type="submit" disabled={busy} className="btn-primary h-12 flex-1">
+                {busy ? 'Saving…' : expense ? 'Save changes' : 'Add expense'}
+              </button>
+            </div>
+          ))}
+
+        {expense && <History expense={expense} history={history} nameOf={nameOf} cur={cur} />}
       </form>
     </Modal>
   );

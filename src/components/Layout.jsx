@@ -9,6 +9,7 @@ import Avatar from './Avatar';
 import ThemeToggle from './ThemeToggle';
 import DemoBar from './DemoBar';
 import NotificationBell from './NotificationBell';
+import { useOutboxSync } from '../hooks/useOutbox';
 
 const navItems = [
   { to: '/join', label: 'Join a group', icon: 'key' },
@@ -54,6 +55,7 @@ export default function Layout({ children }) {
   const navListRef = useRef(null);
   const pillRef = useRef(null);
   const glide = useRef({ pos: null, vel: null, raf: 0, until: 0 });
+  useOutboxSync();
 
   const [offline, setOffline] = useState(() => !navigator.onLine);
   useEffect(() => {
@@ -79,6 +81,8 @@ export default function Layout({ children }) {
 
   const groupId = pathname.match(/^\/groups\/([^/]+)/)?.[1] ?? null;
   const inGroup = Boolean(groupId);
+  // Archived groups leave the switcher (unless one is open right now)
+  const switcher = (groups || []).filter((g) => !g.archived || g.id === groupId);
 
   useLayoutEffect(() => {
     window.scrollTo(0, 0);
@@ -222,7 +226,7 @@ export default function Layout({ children }) {
             </Fold>
 
             {/* The group being opened unfolds first, the rest follow one by one */}
-            {(groups || []).map((g, i) => {
+            {switcher.map((g, i) => {
               const active = g.id === groupId;
               return (
                 <Fold key={g.id} open={inGroup} delay={inGroup ? (active ? 40 : 160 + i * 60) : i * 30}>
@@ -278,7 +282,7 @@ export default function Layout({ children }) {
       {offline && (
         <div role="status" className="fixed inset-x-0 top-[calc(4.5rem+env(safe-area-inset-top))] z-30 flex justify-center px-4 sm:top-[calc(5.5rem+env(safe-area-inset-top))]">
           <span className="glass rounded-full px-3.5 py-1.5 text-[12px] font-medium text-amber-600">
-            You’re offline. Changes will need a connection.
+            You’re offline. Showing saved data; new expenses sync later.
           </span>
         </div>
       )}

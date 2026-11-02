@@ -2,13 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { notifyPaymentsChanged, usePaymentsChanged } from '../context/InboxContext';
-import { notifyGroupsChanged } from '../context/GroupsContext';
+import { notifyPaymentsChanged, useLiveChange, usePaymentsChanged } from '../context/InboxContext';
+import { notifyGroupsChanged, useGroups } from '../context/GroupsContext';
+import { useTitle } from '../hooks/useTitle';
+import { useOutbox } from '../hooks/useOutbox';
+import { touchesGroup } from '../lib/live';
+import { discard } from '../lib/outbox';
 import { rememberLooks } from '../lib/avatars';
 import { api } from '../lib/api';
 import { bucketDebts, debtsByPair, formatMoney, fromCents, pendingKey, pendingPayments, toCents } from '../lib/money';
 import { bucketStyle, bucketsForGroup } from '../lib/buckets';
-import { monthLabel, shortDate } from '../lib/dates';
+import { monthLabel, shortDate, timeAgo, ymdOf } from '../lib/dates';
 import Icon from '../components/Icon';
 import Avatar from '../components/Avatar';
 import BucketIcon from '../components/BucketIcon';
@@ -54,6 +58,7 @@ function ExpenseRow({ expense, me, nameOf, currency, onClick }) {
         </span>
         <span className="block truncate text-[13px] text-slate-500">
           {paidByMe ? 'You' : nameOf(expense.paid_by)} paid {formatMoney(amount, currency)}
+          {expense.updated_at && <span title={`Edited ${timeAgo(expense.updated_at)}`}> · edited</span>}
         </span>
       </span>
       <span className="text-right text-[13px] font-medium leading-tight sm:text-[14px]">{mine}</span>
@@ -108,6 +113,64 @@ function SettlementRow({ s, me, nameOf, currency, onClick }) {
         {formatMoney(Number(s.amount), currency)}
       </span>
     </button>
+  );
+}
+
+// An expense someone deleted: stays in the feed, crossed out, so nothing
+// disappears without a trace
+function DeletedRow({ ev, me, nameOf, currency }) {
+  const b = ev.before || {};
+  return (
+    <div className="flex w-full items-center gap-3 rounded-2xl px-2 py-3 opacity-70 sm:gap-4 sm:px-3">
+      <DateBadge ymd={ymdOf(ev.created_at)} />
+      <span className="relative flex-shrink-0">
+        <BucketIcon name={b.bucket} />
+        <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-white ring-2 ring-[rgb(var(--card))]">
+          <Icon name="trash" className="h-3 w-3" strokeWidth={2.6} />
+        </span>
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[15px] font-medium text-ink line-through decoration-slate-400">
+          {b.bucket}
+          {b.note && <span className="font-normal text-slate-500"> · {b.note}</span>}
+        </span>
+        <span className="block truncate text-[13px] text-slate-500">
+          Deleted by {ev.actor === me ? 'you' : nameOf(ev.actor)} · {timeAgo(ev.created_at)}
+        </span>
+      </span>
+      <span className="text-[14px] font-medium text-slate-400 line-through">{formatMoney(Number(b.amount), currency)}</span>
+    </div>
+  );
+}
+
+// Added offline, not on the server yet (and not in anyone's balance)
+function QueuedRow({ item, nameOf, me, currency }) {
+  const e = item.expense;
+  return (
+    <div className="flex w-full items-center gap-3 rounded-2xl px-2 py-3 sm:gap-4 sm:px-3">
+      <DateBadge ymd={e.date} />
+      <span className="relative flex-shrink-0">
+        <BucketIcon name={e.bucket} />
+        <span className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full text-white ring-2 ring-[rgb(var(--card))] ${item.error ? 'bg-rose-500' : 'bg-slate-400'}`}>
+          <Icon name={item.error ? 'x' : 'cloud'} className="h-3 w-3" strokeWidth={2.6} />
+        </span>
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[15px] font-medium text-ink">
+          {e.bucket}
+          {e.note && <span className="font-normal text-slate-500"> · {e.note}</span>}
+        </span>
+        <span className={`block truncate text-[13px] ${item.error ? 'text-rose-600' : 'text-slate-500'}`}>
+          {item.error ? `Couldn’t save: ${item.error}` : `${e.paidBy === me ? 'You' : nameOf(e.paidBy)} paid · waiting to sync`}
+        </span>
+      </span>
+      <span className="text-[14px] font-medium tabular-nums text-slate-500">{formatMoney(e.amount, currency)}</span>
+      {item.error && (
+        <button type="button" onClick={() => discard(item.clientId)} className="rounded-full px-2.5 py-1 text-[12px] font-medium text-rose-600 ring-1 ring-rose-500/30 hover:bg-rose-500 hover:text-white">
+          Discard
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -403,6 +466,10 @@ export default function GroupPage() {
   const [requests, setRequests] = useState([]);
   const [nudgeInfo, setNudgeInfo] = useState([]);
   const [plans, setPlans] = useState([]);
+  const [events, setEvents] = useState([]);
+  const outbox = useOutbox(id);
+  const { groups } = useGroups();
+  const myGroup = groups?.find((g) => g.id === id);
   const [params, setParams] = useSearchParams();
   // dashboard | activity | balances (phone-only split of the overview) | settings
   const [tab, setTab] = useState(['activity', 'settings'].includes(params.get('tab')) ? params.get('tab') : 'dashboard');
@@ -420,7 +487,7 @@ export default function GroupPage() {
       const g = await api.group(id);
       if (!g) return setGroup(null);
       const owner = g.owner_id === me;
-      const [b, e, s, inv, req, nudges, sp] = await Promise.all([
+      const [b, e, s, inv, req, nudges, sp, ev] = await Promise.all([
         api.balances(id),
         api.expenses(id),
         api.settlements(id),
@@ -428,9 +495,11 @@ export default function GroupPage() {
         owner ? api.pendingRequests() : [],
         api.nudgeInfo(id),
         api.smartPlans(id),
+        api.expenseEvents(id),
       ]);
       setNudgeInfo(nudges);
       setPlans(sp);
+      setEvents(ev);
       rememberLooks([
         [g.id, g.avatar_emoji, g.avatar_color],
         ...b.map((p) => [p.user_id, p.avatar_emoji, p.avatar_color]),
@@ -454,6 +523,9 @@ export default function GroupPage() {
 
   // Someone confirmed or declined from the bell
   usePaymentsChanged(load);
+  // Someone else added, changed or paid something here
+  useLiveChange(useCallback((changes) => touchesGroup(changes, id) && load(), [id, load]));
+  useTitle(group?.name);
 
   // Arriving from a reminder in the bell: open Settle to pay that person
   const settleWith = params.get('settle');
@@ -476,17 +548,18 @@ export default function GroupPage() {
   const buckets = useMemo(() => bucketsForGroup(expenses), [expenses]);
   const usedBuckets = useMemo(() => [...new Set(expenses.map((e) => e.bucket))], [expenses]);
 
-  // Expenses, payments and finished smart settles together, newest first
+  // Expenses, payments, finished smart settles and deleted expenses together, newest first
   const allActivity = useMemo(
     () =>
       [
         ...expenses.map((e) => ({ kind: 'expense', date: e.expense_date, at: e.created_at, item: e })),
+        ...events.filter((ev) => ev.action === 'deleted' && ev.before).map((ev) => ({ kind: 'deleted', date: ymdOf(ev.created_at), at: ev.created_at, item: ev })),
         ...settlements.filter((st) => !st.plan_id).map((st) => ({ kind: 'settlement', date: st.settled_on, at: st.created_at, item: st })),
         ...plans
           .filter((pl) => pl.status === 'done')
           .map((pl) => ({ kind: 'smart', date: (pl.finished_at || pl.created_at).slice(0, 10), at: pl.finished_at || pl.created_at, item: pl })),
       ].sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at)),
-    [expenses, settlements, plans]
+    [expenses, settlements, plans, events]
   );
 
   // The same feed bucketed by month, after the bucket / search / "only mine" filters
@@ -497,6 +570,8 @@ export default function GroupPage() {
       const fields =
         it.kind === 'expense'
           ? [x.bucket, x.note, nameOf(x.paid_by), String(x.amount)]
+          : it.kind === 'deleted'
+            ? ['deleted', x.before.bucket, x.before.note, nameOf(x.actor), String(x.before.amount)]
           : it.kind === 'smart'
             ? ['smart settle', ...x.smart_transfers.flatMap((t) => [nameOf(t.from_user), nameOf(t.to_user), String(t.amount)])]
             : [x.bucket, x.note, nameOf(x.from_user), nameOf(x.to_user), String(x.amount)];
@@ -505,11 +580,16 @@ export default function GroupPage() {
     const involvesMe = (it) =>
       it.kind === 'expense'
         ? it.item.paid_by === me || it.item.expense_splits.some((sp) => sp.user_id === me)
+        : it.kind === 'deleted'
+          ? [it.item.actor, it.item.before.paid_by].includes(me) || (it.item.before.splits || []).some((sp) => sp.user_id === me)
         : it.kind === 'smart'
           ? it.item.smart_plan_members.some((m) => m.user_id === me)
           : [it.item.from_user, it.item.to_user].includes(me);
     const items = allActivity.filter(
-      (it) => (!filter || (it.kind !== 'smart' && it.item.bucket === filter)) && (!q || matches(it)) && (!mineOnly || involvesMe(it))
+      (it) =>
+        (!filter || (it.kind !== 'smart' && (it.kind === 'deleted' ? it.item.before.bucket : it.item.bucket) === filter)) &&
+        (!q || matches(it)) &&
+        (!mineOnly || involvesMe(it))
     );
     const months = [];
     for (const it of items) {
@@ -649,8 +729,12 @@ export default function GroupPage() {
     }
     toast.info(p.status === 'pending' ? `Waiting for ${nameOf(p.confirm_by ?? p.to_user)} to confirm` : `Only ${nameOf(p.to_user)} or the owner can change this`);
   };
+  // Whoever added it, whoever paid, or the owner can change an expense
+  const canEdit = (e) => !e || [e.created_by, e.paid_by].includes(me) || isOwner;
   const activityRow = (it) =>
-    it.kind === 'expense' ? (
+    it.kind === 'deleted' ? (
+      <DeletedRow key={it.item.id} ev={it.item} me={me} nameOf={nameOf} currency={cur} />
+    ) : it.kind === 'expense' ? (
       <ExpenseRow key={it.item.id} expense={it.item} me={me} nameOf={nameOf} currency={cur} onClick={() => setExpenseModal({ open: true, expense: it.item })} />
     ) : it.kind === 'smart' ? (
       <SmartRow key={it.item.id} plan={it.item} me={me} nameOf={nameOf} currency={cur} />
@@ -755,6 +839,22 @@ export default function GroupPage() {
       </div>
 
 
+      {myGroup?.archived && (
+        <div className="glass flex items-center gap-3 rounded-[22px] px-4 py-3">
+          <Icon name="archive" className="h-5 w-5 flex-shrink-0 text-slate-500" />
+          <p className="min-w-0 flex-1 text-[13px] text-slate-600">
+            <span className="font-medium text-ink">Archived for you.</span> It’s hidden from your list but works as normal for everyone.
+          </p>
+          <button
+            type="button"
+            onClick={() => run(() => api.setGroupArchived(group.id, false), `${group.name} is back in your groups`)().catch(() => {})}
+            className="btn-secondary h-8 flex-shrink-0 !px-3 !text-[12px]"
+          >
+            Unarchive
+          </button>
+        </div>
+      )}
+
       {openPlan && (
         <button
           type="button"
@@ -805,6 +905,7 @@ export default function GroupPage() {
         <div className="tab-in">
         <GroupSettings
           group={group}
+          pref={myGroup}
           members={members}
           people={people}
           expenses={expenses}
@@ -870,6 +971,14 @@ export default function GroupPage() {
               </div>
             }
           >
+            {outbox.length > 0 && (
+              <div className="-mx-2 mb-3 rounded-2xl bg-[rgb(var(--line)/0.05)] sm:-mx-3">
+                <p className="px-2 pt-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 sm:px-3">Saved offline · not counted yet</p>
+                {outbox.map((item) => (
+                  <QueuedRow key={item.clientId} item={item} nameOf={nameOf} me={me} currency={cur} />
+                ))}
+              </div>
+            )}
             {activity.length === 0 && (filter || query || mineOnly) ? (
               <div className="py-10 text-center">
                 <p className="text-[15px] text-slate-600">Nothing matches.</p>
@@ -949,6 +1058,8 @@ export default function GroupPage() {
         people={people}
         me={me}
         buckets={buckets}
+        canEdit={canEdit(expenseModal.expense)}
+        history={expenseModal.expense ? events.filter((ev) => ev.expense_id === expenseModal.expense.id) : []}
         onSaved={done}
       />
       <SettleModal

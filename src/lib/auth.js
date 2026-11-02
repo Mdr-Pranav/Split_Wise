@@ -1,5 +1,6 @@
 import { isConfigured, supabase } from './supabase';
 import { mockAuth } from './mock';
+import { cachedRead } from './offline';
 
 const redirect = (path) => `${window.location.origin}${path}`;
 
@@ -34,10 +35,12 @@ const supabaseAuth = {
     const { error } = await supabase.auth.updateUser({ password });
     if (error) throw error;
   },
-  profile: async (id) => {
-    const { data } = await supabase.from('profiles').select('id, display_name, email, upi_id, avatar_emoji, avatar_color').eq('id', id).maybeSingle();
+  // Offline: the last profile seen
+  profile: cachedRead('profile', async (id) => {
+    const { data, error } = await supabase.from('profiles').select('id, display_name, email, upi_id, avatar_emoji, avatar_color').eq('id', id).maybeSingle();
+    if (error) throw new Error(error.message);
     return data;
-  },
+  }),
 };
 
 export const isDemo = !isConfigured;

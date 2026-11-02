@@ -5,6 +5,7 @@ import InvitePanel from './InvitePanel';
 import JoinRequests from './JoinRequests';
 import ExportCard from './ExportCard';
 import AvatarPicker from './AvatarPicker';
+import Switch from './Switch';
 import { api } from '../lib/api';
 import { useToast } from '../context/ToastContext';
 import { notifyGroupsChanged } from '../context/GroupsContext';
@@ -56,7 +57,7 @@ function OwnerBadge() {
 // Group settings. Everyone sees the details and members; the owner also
 // gets renaming, join requests, codes, member management, ownership
 // transfer and deleting the group.
-export default function GroupSettings({ group, members, people, expenses, settlements, me, isOwner, invites, requests, onChange, confirm, run, onLeft }) {
+export default function GroupSettings({ group, pref, members, people, expenses, settlements, me, isOwner, invites, requests, onChange, confirm, run, onLeft }) {
   const toast = useToast();
   const owner = members.find((m) => m.is_owner);
   const [name, setName] = useState(group.name);
@@ -280,6 +281,38 @@ export default function GroupSettings({ group, members, people, expenses, settle
       )}
 
       <div className="contents lg:flex lg:flex-col lg:gap-4">
+        {/* Only changes the viewer's own Home list */}
+        <Card title="Your list" subtitle="Only you see this">
+          <div className="space-y-2.5">
+            <label className="flex cursor-pointer items-center gap-3">
+              <Icon name="pin" className="h-4 w-4 flex-shrink-0 text-slate-500" />
+              <span className="min-w-0 flex-1 text-[14px] text-ink">Pin to the top of Home</span>
+              <Switch
+                checked={Boolean(pref?.pinned)}
+                label="Pin to the top of Home"
+                onChange={(v) => run(() => api.setGroupPinned(group.id, v), v ? 'Pinned' : 'Unpinned', () => {})().catch(() => {})}
+              />
+            </label>
+            <div className="flex items-center gap-3">
+              <Icon name="archive" className="h-4 w-4 flex-shrink-0 text-slate-500" />
+              <p className="min-w-0 flex-1 text-[12px] leading-snug text-slate-500">
+                {pref?.archived
+                  ? 'Archived: hidden from your groups. It comes back by itself when an expense includes you.'
+                  : 'Done with it? Archive to hide it from your list. Balances still count, and it works as normal for everyone else.'}
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  run(() => api.setGroupArchived(group.id, !pref?.archived), pref?.archived ? `${group.name} is back in your groups` : `${group.name} archived`, () => {})().catch(() => {})
+                }
+                className="btn-secondary h-9 flex-shrink-0 !px-3.5 !text-[13px]"
+              >
+                {pref?.archived ? 'Unarchive' : 'Archive'}
+              </button>
+            </div>
+          </div>
+        </Card>
+
         <ExportCard group={group} people={people} expenses={expenses} settlements={settlements} Card={Card} />
 
         <Card title={isOwner ? 'Danger zone' : 'Leave group'} className="ring-1 ring-rose-500/15">

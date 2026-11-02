@@ -30,3 +30,9 @@ export function monthLabel(ymd) {
   const [y, m] = ymd.split('-').map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 }
+
+// A timestamp's local calendar day as YYYY-MM-DD
+export function ymdOf(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}

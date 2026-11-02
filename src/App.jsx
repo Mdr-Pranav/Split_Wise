@@ -1,10 +1,12 @@
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { InboxProvider } from './context/InboxContext';
 import { GroupsProvider } from './context/GroupsContext';
 import Layout from './components/Layout';
 import Logo from './components/Logo';
+import ErrorBoundary from './components/ErrorBoundary';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
@@ -44,6 +46,27 @@ function PublicOnly({ children }) {
   return children;
 }
 
+// Tapping a push notification while the app is open: the service worker
+// asks the page to go there instead of opening a second window
+function NotificationLinks() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMessage = (e) => {
+      if (e.data?.type === 'navigate' && typeof e.data.url === 'string' && e.data.url.startsWith('/')) navigate(e.data.url);
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [navigate]);
+  return null;
+}
+
+// A crash on one screen clears once you move to another
+function RouteBoundary({ children }) {
+  const { pathname } = useLocation();
+  return <ErrorBoundary resetKey={pathname}>{children}</ErrorBoundary>;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -55,6 +78,8 @@ export default function App() {
         <AuthProvider>
           <InboxProvider>
           <GroupsProvider>
+            <NotificationLinks />
+            <RouteBoundary>
             <Routes>
               <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
               <Route path="/signup" element={<PublicOnly><Signup /></PublicOnly>} />
@@ -64,9 +89,10 @@ export default function App() {
               <Route path="/groups/:id" element={<Protected><GroupPage /></Protected>} />
               <Route path="/join" element={<Protected><JoinGroup /></Protected>} />
               <Route path="/settings" element={<Protected><Settings /></Protected>} />
-            <Route path="/how-it-works" element={<Protected><HowItWorks /></Protected>} />
+              <Route path="/how-it-works" element={<Protected><HowItWorks /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+            </RouteBoundary>
           </GroupsProvider>
           </InboxProvider>
         </AuthProvider>

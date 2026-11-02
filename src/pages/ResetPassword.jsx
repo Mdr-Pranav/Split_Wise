@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import AuthShell, { ErrorNote } from '../components/AuthShell';
+import { useTitle } from '../hooks/useTitle';
 
 // Landing page for the emailed reset link; Supabase signs the user in from the URL
 export default function ResetPassword() {
+  useTitle('New password');
   const { session, loading: authLoading, updatePassword, setRecovering } = useAuth();
   const navigate = useNavigate();
   const [password, setPassword] = useState('');

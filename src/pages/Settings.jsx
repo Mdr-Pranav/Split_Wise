@@ -12,14 +12,49 @@ import Avatar from '../components/Avatar';
 import Segmented from '../components/Segmented';
 import { IosSteps } from '../components/InstallApp';
 import AvatarPicker from '../components/AvatarPicker';
+import Switch from '../components/Switch';
+import ConfirmModal from '../components/ConfirmModal';
+import { useTitle } from '../hooks/useTitle';
+import { disablePush, enablePush, pushStatus, sendTestPush } from '../lib/push';
 
-// iOS Settings building blocks: a captioned group of rows on glass
-function Group({ title, footer, children, className = '' }) {
-  return (
-    <section className={className}>
-      {title && <h2 className="mb-1.5 px-4 text-[12px] font-medium uppercase tracking-[0.04em] text-slate-500">{title}</h2>}
+// iOS Settings building blocks: a captioned group of rows on glass.
+// collapsible: the caption folds the rows (and footer) away.
+function Group({ title, footer, children, className = '', collapsible = false, defaultOpen = true }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const caption = 'px-4 text-[12px] font-medium uppercase tracking-[0.04em] text-slate-500';
+  const body = (
+    <>
       <div className="glass overflow-hidden rounded-[22px]">{children}</div>
       {footer && <p className="mt-1.5 px-4 text-[12px] leading-snug text-slate-500">{footer}</p>}
+    </>
+  );
+  if (!collapsible) {
+    return (
+      <section className={className}>
+        {title && <h2 className={`mb-1.5 ${caption}`}>{title}</h2>}
+        {body}
+      </section>
+    );
+  }
+  return (
+    <section className={className}>
+      <h2 className="mb-1.5">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className={`flex w-full items-center gap-1 rounded-lg py-0.5 text-left transition-colors hover:text-ink ${caption}`}
+        >
+          {title}
+          <Icon name="chevron" className={`ml-auto h-4 w-4 transition-transform duration-300 ease-ios ${open ? '-rotate-90' : 'rotate-90'}`} />
+        </button>
+      </h2>
+      {/* inert while folded so its buttons can't be tabbed to */}
+      <Reveal open={open}>
+        <div inert={open ? undefined : ''} className="pb-1">
+          {body}
+        </div>
+      </Reveal>
     </section>
   );
 }
@@ -30,6 +65,18 @@ const TILE = {
   indigo: 'bg-[#5856d6]',
   orange: 'bg-[#ff9500]',
   gray: 'bg-[#8e8e93]',
+  red: 'bg-[#ff3b30]',
+};
+
+// Under the Notifications row, for each state pushStatus() can report
+const PUSH_SUB = {
+  loading: '',
+  unavailable: 'Needs the deployed app with push set up',
+  install: `Add ${APP_NAME} to your Home Screen first`,
+  unsupported: 'This browser can’t receive them',
+  denied: 'Blocked. Allow them in your browser’s site settings.',
+  off: 'Payments to confirm, reminders, new expenses',
+  on: 'Payments to confirm, reminders, new expenses',
 };
 
 // One row: coloured icon tile, label, and whatever sits on the right.
@@ -97,6 +144,48 @@ export default function Settings() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(''); // expanded row: emoji | password | install
+  const [push, setPush] = useState('loading');
+  const [pushBusy, setPushBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  useTitle('Settings');
+
+  useEffect(() => {
+    pushStatus().then(setPush, () => setPush('unsupported'));
+  }, []);
+
+  const togglePush = async (on) => {
+    setPushBusy(true);
+    try {
+      await (on ? enablePush() : disablePush());
+      toast.success(on ? 'Notifications on' : 'Notifications off');
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setPush(await pushStatus().catch(() => 'unsupported'));
+      setPushBusy(false);
+    }
+  };
+
+  const testPush = async () => {
+    try {
+      if (await sendTestPush()) toast.info('Test sent. It should arrive in a few seconds.');
+      else toast.error('Push isn’t set up on the server yet. See “Push notifications” in the README.');
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const deleteAccount = async () => {
+    try {
+      await api.deleteAccount();
+    } catch (err) {
+      toast.error(err.message);
+      throw err;
+    }
+    await signOut().catch(() => {});
+    toast.success('Your account was deleted');
+    navigate('/login');
+  };
 
   const upiBad = (v) => v.trim() !== '' && !isValidUpi(v);
   const toggle = (row) => setOpen((o) => (o === row ? '' : row));
@@ -227,7 +316,28 @@ export default function Settings() {
           </Reveal>
         </Group>
 
-        <Group title="Security">
+        <Group title="Notifications" footer={push === 'on' ? 'Sent to this device only. Turn it on on each phone or laptop you use.' : undefined}>
+          <Row icon="bell" tile="red" label="Push notifications" sub={PUSH_SUB[push]}>
+            <Switch
+              checked={push === 'on'}
+              onChange={(v) => !pushBusy && (push === 'on' || push === 'off') && togglePush(v)}
+              label="Push notifications"
+              className={push === 'on' || push === 'off' ? '' : 'pointer-events-none opacity-40'}
+            />
+          </Row>
+          {push === 'on' && (
+            <Row icon="sparkle" tile="gray" label="Send a test notification" onClick={testPush}>
+              <Icon name="chevron" className="h-4 w-4 text-slate-400" />
+            </Row>
+          )}
+        </Group>
+
+        <Group
+          title="Security"
+          collapsible
+          defaultOpen={false}
+          footer="To delete your account, settle up everywhere first. Groups you own with other people need a new owner; groups only you are in are deleted. Your name on old expenses becomes “Deleted user”."
+        >
           <Row icon="key" tile="orange" label="Change password" onClick={() => toggle('password')}>
             <Icon name="chevron" className={`h-4 w-4 text-slate-400 transition-transform duration-300 ease-ios ${open === 'password' ? 'rotate-90' : ''}`} />
           </Row>
@@ -250,20 +360,26 @@ export default function Settings() {
               </button>
             </form>
           </Reveal>
-        </Group>
-
-        <Group>
-          <button
-            type="button"
+          <Row
+            icon="logout"
+            tile="gray"
+            label={<span className="text-[#ff3b30] dark:text-[#ff453a]">Sign out</span>}
             onClick={async () => {
               await signOut();
               navigate('/login');
             }}
-            className="flex min-h-[48px] w-full items-center justify-center text-[15px] font-medium text-[#ff3b30] transition-colors duration-200 active:bg-[rgb(var(--line)/0.08)] dark:text-[#ff453a]"
-          >
-            Sign out
-          </button>
+          />
+          <Row icon="trash" tile="red" label={<span className="text-[#ff3b30] dark:text-[#ff453a]">Delete account</span>} onClick={() => setDeleting(true)} />
         </Group>
+        <ConfirmModal
+          open={deleting}
+          onClose={() => setDeleting(false)}
+          title="Delete your account?"
+          body={`Your login, profile picture and UPI ID are removed for good and you’ll be signed out. This can’t be undone.`}
+          confirmLabel="Delete account"
+          danger
+          onConfirm={deleteAccount}
+        />
       </div>
     </div>
   );

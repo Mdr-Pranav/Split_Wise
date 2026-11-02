@@ -2,9 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import { api } from '../lib/api';
 import { useAuth } from './AuthContext';
 import { rememberLooks } from '../lib/avatars';
+import { startLive } from '../lib/live';
 
 const InboxContext = createContext(null);
-const POLL_MS = 30000;
+// Live updates do the real work; polling is the backstop if they drop
+const POLL_MS = 60000;
 const EVENT = 'payments-changed';
 
 // Any screen that records, confirms or withdraws a payment calls this so the
@@ -17,6 +19,16 @@ export function usePaymentsChanged(callback) {
   useEffect(() => {
     window.addEventListener(EVENT, callback);
     return () => window.removeEventListener(EVENT, callback);
+  }, [callback]);
+}
+
+// Someone (maybe someone else) changed something the user can see.
+// callback gets the batch of changes; see touchesGroup() in lib/live.
+export function useLiveChange(callback) {
+  useEffect(() => {
+    const handler = (e) => callback(e.detail);
+    window.addEventListener('live-change', handler);
+    return () => window.removeEventListener('live-change', handler);
   }, [callback]);
 }
 
@@ -60,6 +72,10 @@ export function InboxProvider({ children }) {
   }, [refresh, userId]);
 
   usePaymentsChanged(refresh);
+  useLiveChange(refresh);
+
+  // One live connection for the whole app while signed in
+  useEffect(() => startLive(userId), [userId]);
 
   return <InboxContext.Provider value={{ items, nudges, smart, refresh }}>{children}</InboxContext.Provider>;
 }

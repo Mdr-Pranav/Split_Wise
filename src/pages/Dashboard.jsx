@@ -2,14 +2,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useGroups } from '../context/GroupsContext';
+import { useLiveChange } from '../context/InboxContext';
+import { useTitle } from '../hooks/useTitle';
 import { api } from '../lib/api';
 import { rememberLooks } from '../lib/avatars';
-import { formatMoney, formatTotals } from '../lib/money';
-import { timeAgo } from '../lib/dates';
+import { formatTotals } from '../lib/money';
 import Icon from '../components/Icon';
 import Skeleton from '../components/Skeleton';
-import Avatar from '../components/Avatar';
 import { GlowCard, GlowRing } from '../components/Glow';
+import GroupList from '../components/GroupList';
 import JoinRequests from '../components/JoinRequests';
 import CreateGroupModal from '../components/CreateGroupModal';
 import { InstallBanner } from '../components/InstallApp';
@@ -65,70 +67,31 @@ function BalanceHero({ owed, owe, net, netTotal, onNewGroup }) {
   );
 }
 
-// One row in the groups list on Home
-function GroupRow({ group, isMine }) {
-  const owe = Number(group.my_owe);
-  const owed = Number(group.my_owed);
-  return (
-    <li>
-      <Link
-        to={`/groups/${group.id}`}
-        className="group flex items-center gap-3 rounded-2xl px-2.5 py-3 transition-colors hover:bg-surface-elevated/70 sm:gap-4 sm:px-3"
-      >
-        <Avatar id={group.id} name={group.name} size="lg" />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5">
-            <span className="truncate text-[16px] font-semibold text-ink">{group.name}</span>
-            {isMine && (
-              <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-semibold text-brand-600">
-                <Icon name="crown" className="h-3 w-3" /> Owner
-              </span>
-            )}
-          </span>
-          <span className="mt-0.5 block truncate text-[13px] text-slate-500">
-            {group.member_count} {group.member_count === 1 ? 'member' : 'members'}
-            {!isMine && ` · by ${group.owner_name}`} · {timeAgo(group.last_activity)}
-          </span>
-        </span>
-        <span className="flex flex-shrink-0 flex-col items-end text-right text-[13px] font-semibold leading-snug tabular-nums">
-          {owe < 0.005 && owed < 0.005 ? (
-            <span className="font-medium text-slate-400">Settled up</span>
-          ) : (
-            <>
-              {owed >= 0.005 && <span className="text-emerald-600">+{formatMoney(owed, group.currency)}</span>}
-              {owe >= 0.005 && <span className="text-rose-600">−{formatMoney(owe, group.currency)}</span>}
-            </>
-          )}
-        </span>
-        <Icon name="chevron" className="h-4 w-4 flex-shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5" />
-      </Link>
-    </li>
-  );
-}
-
 export default function Dashboard() {
   const { user, name } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
-  const [groups, setGroups] = useState(null);
+  const { groups, refresh } = useGroups();
   const [requests, setRequests] = useState([]);
   const [createOpen, setCreateOpen] = useState(false);
+  useTitle('Home');
 
   const load = useCallback(async () => {
     try {
-      const [g, r] = await Promise.all([api.myGroups(), api.pendingRequests()]);
-      setGroups(g);
+      const r = await api.pendingRequests();
       setRequests(r);
       rememberLooks(r.map((x) => [x.user_id, x.profiles?.avatar_emoji, x.profiles?.avatar_color]));
     } catch (err) {
       toast.error(err.message);
-      setGroups([]);
     }
   }, [toast]);
 
+  // Balances may have moved since the header last loaded the groups
   useEffect(() => {
     load();
-  }, [load]);
+    refresh();
+  }, [load, refresh]);
+  useLiveChange(load);
 
   const incoming = requests.filter((r) => r.groups?.owner_id === user.id && r.user_id !== user.id);
   const outgoing = requests.filter((r) => r.user_id === user.id);
@@ -147,6 +110,7 @@ export default function Dashboard() {
       await api.cancelRequest(id);
       toast.info('Request withdrawn');
       load();
+      refresh();
     } catch (err) {
       toast.error(err.message);
     }
@@ -173,34 +137,7 @@ export default function Dashboard() {
 
             {/* Right column: groups list on top, requests underneath; the list takes what's left and scrolls */}
             <div className="flex min-w-0 flex-col gap-3 sm:gap-4 lg:h-[max(520px,calc(100dvh-16rem))]">
-            <section className="card flex min-h-[220px] flex-1 flex-col overflow-hidden !p-0">
-              <div className="flex flex-shrink-0 items-center justify-between gap-2 px-4 pb-2 pt-4 sm:px-5">
-                <h2 className="text-[16px] font-semibold text-ink">
-                  Your groups
-                  {groups.length > 0 && <span className="ml-1.5 text-[13px] font-medium text-slate-400">{groups.length}</span>}
-                </h2>
-                <button type="button" onClick={() => setCreateOpen(true)} className="btn-secondary h-8 !px-3 !text-[13px]">
-                  <Icon name="plus" className="h-3.5 w-3.5" strokeWidth={2.4} /> New
-                </button>
-              </div>
-              {groups.length === 0 ? (
-                <div className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
-                  <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/10 text-brand-600">
-                    <Icon name="users" className="h-7 w-7" />
-                  </div>
-                  <h3 className="text-[18px] font-semibold text-ink">No groups yet</h3>
-                  <p className="mt-1.5 max-w-sm text-[14px] text-slate-600">
-                    Start one for a trip or your flat, or ask a friend for their group's one-time code.
-                  </p>
-                </div>
-              ) : (
-                <ul className="scroll-fade min-h-0 flex-1 divide-y divide-surface-border overflow-y-auto overscroll-contain px-2 pb-3 sm:px-3">
-                  {groups.map((g) => (
-                    <GroupRow key={g.id} group={g} isMine={g.owner_id === user.id} />
-                  ))}
-                </ul>
-              )}
-            </section>
+            <GroupList me={user.id} onNew={() => setCreateOpen(true)} />
             {incoming.length > 0 && (
               <section className="card flex-shrink-0 !p-5 shadow-[0_14px_36px_-16px_rgb(255_159_10/0.55)] ring-1 ring-amber-400/50">
                 <div className="mb-4 flex items-center gap-2">
@@ -210,7 +147,14 @@ export default function Dashboard() {
                   </span>
                   <h2 className="text-[16px] font-semibold text-ink">Waiting for your approval</h2>
                 </div>
-                <JoinRequests requests={incoming} showGroup onChange={load} />
+                <JoinRequests
+                  requests={incoming}
+                  showGroup
+                  onChange={() => {
+                    load();
+                    refresh();
+                  }}
+                />
               </section>
             )}
 
