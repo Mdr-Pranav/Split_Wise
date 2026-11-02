@@ -37,16 +37,28 @@ export const iosAppLinks = (payment) => {
 // Launch a UPI app's home screen (not a payment link, so no risk check).
 // Android: Chrome's intent: URL by package name, which opens the Play Store
 // if the app isn't installed. iOS: each app's own URL scheme.
+// iosPay is the app's own pay screen, which takes the usual UPI query.
 export const UPI_APPS = [
-  { id: 'gpay', name: 'GPay', android: 'com.google.android.apps.nbu.paisa.user', ios: 'gpay://' },
-  { id: 'phonepe', name: 'PhonePe', android: 'com.phonepe.app', ios: 'phonepe://' },
-  { id: 'paytm', name: 'Paytm', android: 'net.one97.paytm', ios: 'paytmmp://' },
-  { id: 'bhim', name: 'BHIM', android: 'in.org.npci.upiapp', ios: null },
+  { id: 'gpay', name: 'GPay', android: 'com.google.android.apps.nbu.paisa.user', ios: 'gpay://', iosPay: 'gpay://upi/pay' },
+  { id: 'phonepe', name: 'PhonePe', android: 'com.phonepe.app', ios: 'phonepe://', iosPay: 'phonepe://pay' },
+  { id: 'paytm', name: 'Paytm', android: 'net.one97.paytm', ios: 'paytmmp://', iosPay: 'paytmmp://pay' },
+  { id: 'bhim', name: 'BHIM', android: 'in.org.npci.upiapp', ios: null, iosPay: null },
 ];
 
 export function appLaunchUrl(app) {
   if (isIOS()) return app.ios;
   return `intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=${app.android};end`;
+}
+
+// Open one app straight on its pay screen with the UPI ID, name and note
+// filled in. The amount is left out: apps flag links to personal UPI IDs
+// that carry a pre-filled amount, while the bare intent is a normal P2P
+// push the payer completes (amount + PIN) themselves. Android targets the
+// app by package, so it skips the chooser and falls back to the Play Store.
+export function appPayUrl(app, payment) {
+  const q = upiQuery({ ...payment, withAmount: false });
+  if (isIOS()) return app.iosPay ? `${app.iosPay}?${q}` : null;
+  return `intent://pay?${q}#Intent;scheme=upi;package=${app.android};end`;
 }
 
 // Apps that can be launched on this device

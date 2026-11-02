@@ -1,22 +1,24 @@
 import { useEffect, useState } from 'react';
 import Icon from './Icon';
-import { appLaunchUrl, copyNow, isPhone, launchableApps, upiLink } from '../lib/upi';
+import { appLaunchUrl, appPayUrl, copyNow, isIOS, isPhone, launchableApps, upiLink } from '../lib/upi';
 import { useToast } from '../context/ToastContext';
 
 const LAST_APP_KEY = 'splitzy-upi-app';
 
 // Payment helper inside Settle: the receiver's UPI ID and the amount to
 // copy, then two ways to pay. "Show QR" works on laptops (scan it with your
-// phone); "Open app" works on phones (copies the UPI ID and launches the
-// app's home screen). The one that doesn't fit the device stays visible but
-// disabled. UPI apps flag pre-filled links to personal UPI IDs, so the
-// payment itself happens by hand in the UPI app; nothing is recorded until
-// the user taps "I've paid".
+// phone); "Open app" works on phones: each app opens on its pay screen with
+// the UPI ID and note filled in and the amount copied, ready to paste (apps
+// flag personal-UPI links that pre-fill the amount). If an app still refuses
+// the link, "home" mode copies the UPI ID and just launches the app. The
+// option that doesn't fit the device stays visible but disabled. Nothing is
+// recorded until the user taps "I've paid".
 export default function UpiPay({ payee, vpa, amount, note }) {
   const toast = useToast();
   const phone = isPhone();
   const [open, setOpen] = useState(''); // '' | qr | apps
   const [qr, setQr] = useState('');
+  const [mode, setMode] = useState('pay'); // pay: open the pay screen | home: just launch the app
   const [lastApp, setLastApp] = useState(() => {
     try {
       return localStorage.getItem(LAST_APP_KEY);
@@ -24,7 +26,9 @@ export default function UpiPay({ payee, vpa, amount, note }) {
       return null;
     }
   });
-  const apps = launchableApps().sort((a, b) => (b.id === lastApp) - (a.id === lastApp));
+  const apps = launchableApps()
+    .filter((a) => mode === 'home' || !isIOS() || a.iosPay)
+    .sort((a, b) => (b.id === lastApp) - (a.id === lastApp));
   const plainAmount = Number(amount).toFixed(2).replace(/\.00$/, '');
   const link = vpa ? upiLink({ vpa, name: payee, amount, note }) : '';
 
@@ -49,14 +53,14 @@ export default function UpiPay({ payee, vpa, amount, note }) {
   };
 
   const launch = (app) => {
-    copyNow(vpa);
+    copyNow(mode === 'pay' ? plainAmount : vpa);
     try {
       localStorage.setItem(LAST_APP_KEY, app.id);
     } catch {
       // only affects ordering
     }
     setLastApp(app.id);
-    toast.success(`UPI ID copied · opening ${app.name}`);
+    toast.success(`${mode === 'pay' ? `₹${plainAmount}` : 'UPI ID'} copied · opening ${app.name}`);
   };
 
   const tile = (active) =>
@@ -103,15 +107,28 @@ export default function UpiPay({ payee, vpa, amount, note }) {
             <div className="space-y-1.5 pt-0.5">
               <div className={`grid gap-1.5 ${apps.length > 3 ? 'grid-cols-4' : 'grid-cols-3'}`}>
                 {apps.map((app, i) => (
-                  <a key={app.id} href={appLaunchUrl(app)} onClick={() => launch(app)} className={`${i === 0 ? 'btn-primary' : 'btn-secondary'} h-9 !px-1 !text-[13px]`}>
+                  <a key={app.id} href={mode === 'pay' ? appPayUrl(app, { vpa, name: payee, note }) : appLaunchUrl(app)} onClick={() => launch(app)} className={`${i === 0 ? 'btn-primary' : 'btn-secondary'} h-9 !px-1 !text-[13px]`}>
                     {app.name}
                   </a>
                 ))}
               </div>
-              <p className="text-[12px] text-slate-500">
-                Copies the UPI ID and opens the app. There: <b className="text-ink">Pay → UPI ID</b> → paste → enter{' '}
-                <b className="tabular-nums text-ink">₹{plainAmount}</b>.
-              </p>
+              {mode === 'pay' ? (
+                <p className="text-[12px] text-slate-500">
+                  Opens the pay screen for <span className="font-medium text-ink">{payee}</span> and copies{' '}
+                  <b className="tabular-nums text-ink">₹{plainAmount}</b>. Paste it as the amount and pay.{' '}
+                  <button type="button" onClick={() => setMode('home')} className="font-medium text-brand-600 hover:text-brand-700">
+                    Pay screen didn’t open?
+                  </button>
+                </p>
+              ) : (
+                <p className="text-[12px] text-slate-500">
+                  Copies the UPI ID and opens the app. There: <b className="text-ink">Pay → UPI ID</b> → paste → enter{' '}
+                  <b className="tabular-nums text-ink">₹{plainAmount}</b>.{' '}
+                  <button type="button" onClick={() => setMode('pay')} className="font-medium text-brand-600 hover:text-brand-700">
+                    Back
+                  </button>
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -120,7 +137,7 @@ export default function UpiPay({ payee, vpa, amount, note }) {
       {phone && (
         <p className="flex items-start gap-1.5 text-[11px] leading-snug text-slate-500">
           <Icon name="bell" className="mt-px h-3 w-3 flex-shrink-0" />
-          UPI rules don’t let apps start payments between friends automatically, so pay in your UPI app, then come back and tap I’ve paid.
+          You confirm the payment with your UPI PIN in the app, then come back here and tap I’ve paid.
         </p>
       )}
     </div>

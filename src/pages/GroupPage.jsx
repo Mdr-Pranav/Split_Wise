@@ -791,22 +791,12 @@ export default function GroupPage() {
             pairs={pairs}
             me={me}
             nameOf={nameOf}
-            recent={allActivity.slice(0, 5)}
-            renderActivity={activityRow}
             onAddExpense={() => setExpenseModal({ open: true, expense: null })}
             onSettle={() => setSettleModal({ open: true, preset: null })}
             onPay={(to) => setSettleModal({ open: true, preset: { from: me, to } })}
             onOpenPayment={openPayment}
             nudgeFor={nudgeFor}
             onNudge={nudge}
-            onPickBucket={(b) => {
-              setFilter(b);
-              setTab('activity');
-            }}
-            onTab={(t, view) => {
-              if (view) setBalanceView(view);
-              setTab(t);
-            }}
           />
         </div>
       )}

@@ -12,6 +12,7 @@ import NotificationBell from './NotificationBell';
 
 const navItems = [
   { to: '/join', label: 'Join a group', icon: 'key' },
+  { to: '/how-it-works', label: 'How it works', icon: 'info' },
   { to: '/settings', label: 'Settings', icon: 'settings' },
 ];
 

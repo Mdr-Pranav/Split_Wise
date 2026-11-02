@@ -13,6 +13,7 @@ import Dashboard from './pages/Dashboard';
 import GroupPage from './pages/GroupPage';
 import JoinGroup from './pages/JoinGroup';
 import Settings from './pages/Settings';
+import HowItWorks from './pages/HowItWorks';
 
 function Splash() {
   return (
@@ -63,6 +64,7 @@ export default function App() {
               <Route path="/groups/:id" element={<Protected><GroupPage /></Protected>} />
               <Route path="/join" element={<Protected><JoinGroup /></Protected>} />
               <Route path="/settings" element={<Protected><Settings /></Protected>} />
+            <Route path="/how-it-works" element={<Protected><HowItWorks /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </GroupsProvider>
